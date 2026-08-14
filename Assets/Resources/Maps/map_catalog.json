@@ -1,0 +1,64 @@
+{
+  "schema_version": "gambit_map_catalog_v1",
+  "maps": [
+    {
+      "map_id": "arena_ascent_v1",
+      "display_name": "Ascent",
+      "resource_path": "",
+      "source_asset_path": "Assets/Maps/AscentTrimmedNoMaterials.fbx",
+      "source_sha256": "3530c91c422ae4686234cc2c25ac2c0386db32f6a2c88e1e4b2b27d087108570",
+      "baked_default": true,
+      "enabled": true,
+      "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+      "rotation_euler": {"x": 0.0, "y": 0.0, "z": 0.0},
+      "scale": {"x": 1.0, "y": 1.0, "z": 1.0}
+    },
+    {
+      "map_id": "arena_breeze_v1",
+      "display_name": "Breeze",
+      "resource_path": "Maps/ArenaBreeze",
+      "source_asset_path": "Assets/Maps/BreezeCorrectScaling.fbx",
+      "source_sha256": "d7f7e7a7f91a0d3d4c8621a78592da1894ccd539247c632c55c4bec838c4b46c",
+      "baked_default": false,
+      "enabled": true,
+      "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+      "rotation_euler": {"x": 0.0, "y": 0.0, "z": 0.0},
+      "scale": {"x": 1.0, "y": 1.0, "z": 1.0}
+    },
+    {
+      "map_id": "arena_bind_v1",
+      "display_name": "Bind",
+      "resource_path": "Maps/ArenaBind",
+      "source_asset_path": "Assets/Maps/BindTrimmedNoMaterials.fbx",
+      "source_sha256": "48f4779eea3f9a5c9ead46fd2e0ad0a595d17edea19f015e50781733137bdaff",
+      "baked_default": false,
+      "enabled": true,
+      "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+      "rotation_euler": {"x": 0.0, "y": 0.0, "z": 0.0},
+      "scale": {"x": 1.0, "y": 1.0, "z": 1.0}
+    }
+  ],
+  "profiles": [
+    {
+      "profile_id": "original_only",
+      "members": [
+        {"map_id": "arena_ascent_v1", "weight": 1.0}
+      ]
+    },
+    {
+      "profile_id": "new_maps_only",
+      "members": [
+        {"map_id": "arena_breeze_v1", "weight": 0.5},
+        {"map_id": "arena_bind_v1", "weight": 0.5}
+      ]
+    },
+    {
+      "profile_id": "mapmix_v1",
+      "members": [
+        {"map_id": "arena_ascent_v1", "weight": 0.4},
+        {"map_id": "arena_breeze_v1", "weight": 0.3},
+        {"map_id": "arena_bind_v1", "weight": 0.3}
+      ]
+    }
+  ]
+}
