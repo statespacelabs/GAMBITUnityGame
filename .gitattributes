@@ -1,0 +1,2 @@
+Assets/Maps/AscentTrimmedNoMaterials.fbx filter=lfs diff=lfs merge=lfs -text
+Assets/Maps/BindTrimmedNoMaterials.fbx filter=lfs diff=lfs merge=lfs -text

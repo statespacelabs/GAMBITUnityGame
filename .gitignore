@@ -1,0 +1,40 @@
+# Unity-generated state
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+UserSettings/
+MemoryCaptures/
+Recordings/
+Assets/ML-Agents/Timers/
+
+# Local crash dumps and development backups
+mono_crash.*.json
+*.phase*_backup*
+
+# IDE-generated state
+.vscode/
+.idea/
+*.csproj
+*.sln
+*.suo
+*.user
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# OS-generated state
+.DS_Store
+Thumbs.db
+
+# Preserve Unity and project documentation despite repository root rules.
+!*.meta
+!**/*.meta
+!*.md
+!**/*.md
