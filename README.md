@@ -20,6 +20,15 @@ Standard RL modes run the bundled ONNX policy locally. Only modes marked
 * `Assets/Editor/` — Unity Editor-only build, replay, QA, and Play Mode tools
   (`Gambit.Editor`).
 
+The frozen `local45`, `actor231`, and eight-value action layouts are documented
+in [`OBSERVATION_CONTRACTS.md`](OBSERVATION_CONTRACTS.md). Persisted schema IDs
+are compatibility identifiers and must change if a layout changes.
+
+For a zoomable project-wide map of types, methods, calls, dependencies, and
+change guidance, open [`Documentation/GAMBIT_ARCHITECTURE.svg`](Documentation/GAMBIT_ARCHITECTURE.svg)
+in a browser. Regenerate it after source changes with
+`python3 Tools/generate_architecture_graph.py`.
+
 ## Bundled runtime assets
 
 * `Assets/Maps/` — source map meshes used by the scene and provenance registry.
@@ -70,3 +79,13 @@ builds may call `GambitReleaseBuilder.BuildMacUniversal`; pass
 Run **GAMBIT > QA > Run Weapon Reset Stress Test** before a release. The same
 test is available to batch Unity through
 `-executeMethod WeaponResetTortureHarness.Run`.
+
+Policy contract and bundled-model parity tests can be run in EditMode:
+
+```sh
+/Applications/Unity/Hub/Editor/2022.3.62f3/Unity.app/Contents/MacOS/Unity \
+  -projectPath /absolute/path/to/01_GAMBIT-Demo -batchmode -nographics \
+  -runTests -testPlatform editmode \
+  -testFilter PolicyContractGoldenVectorTests \
+  -testResults /tmp/gambit-contract-tests.xml
+```

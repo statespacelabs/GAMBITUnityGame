@@ -8,18 +8,19 @@ using Unity.MLAgents;
 using UnityEngine;
 
 /// <summary>
-/// Opt-in autonomous Phase 5 session owner. It keeps one Unity process alive
+/// Opt-in autonomous training-session owner. It keeps one Unity process alive
 /// across lives and challenger changes, owns reset boundaries, and emits one
 /// complete telemetry row per cleared session.
 /// </summary>
 [DefaultExecutionOrder(31000)]
-public sealed class Phase5AutonomousSession : MonoBehaviour
+[UnityEngine.Scripting.APIUpdating.MovedFrom(true, null, null, "Phase5AutonomousSession")]
+public sealed class AutonomousTrainingSession : MonoBehaviour
 {
     public const string SchemaVersion = "phase5_autonomous_session_v001";
     public const string AuditSchemaVersion = "phase5_autonomous_harness_audit_v001";
 
-    private static readonly List<Phase5AutonomousSession> Instances =
-        new List<Phase5AutonomousSession>();
+    private static readonly List<AutonomousTrainingSession> Instances =
+        new List<AutonomousTrainingSession>();
     private static bool? enabledFromEnvironment;
     private static bool auditWritten;
     private static string globalFailure = "";
@@ -55,7 +56,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
     private PlayerBody opponent;
     private GambitAgentController candidateAgent;
     private ScriptedBotController opponentController;
-    private Phase5MapIndependentTelemetry telemetry;
+    private MapIndependentTelemetry telemetry;
     private PresetConfig preset;
     private int targetSessions;
     private string runId;
@@ -111,7 +112,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
     private float candidateDamageAtStart;
     private float opponentDamageAtStart;
     private readonly float[] actorObservation =
-        new float[Phase5ActorObservationLayout.ObservationSize];
+        new float[ActorObservationContract.Size];
     private readonly List<string> challengerIds = new List<string>();
     private readonly List<SearchEventRecord> searchEvents = new List<SearchEventRecord>();
     private bool lastSeenReachedEvent;
@@ -143,11 +144,11 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
             return true;
         if (raw != "1")
             return FailGlobal("enable_flag_invalid:" + raw);
-        if (!Phase5HeadlessRuntime.Enabled && !Phase5RenderedSmokeRuntime.Enabled)
+        if (!HeadlessTrainingRuntime.Enabled && !RenderedSmokeRuntime.Enabled)
             return FailGlobal("requires_phase5_headless");
-        bool procedural = Phase5ProceduralArenaRuntime.Enabled
-            && Phase5ProceduralArenaRuntime.IsValid;
-        bool authoredTeacher = Phase5GenericPrivilegedTeacher.Enabled
+        bool procedural = ProceduralArenaRuntime.Enabled
+            && ProceduralArenaRuntime.IsValid;
+        bool authoredTeacher = PrivilegedTeacher.Enabled
             && DemoMapRuntime.ControlEnabled
             && DemoMapRuntime.IsValid;
         if (!procedural && !authoredTeacher)
@@ -186,8 +187,8 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
             FailGlobal("attach_references_missing");
             return;
         }
-        Phase5AutonomousSession component =
-            match.gameObject.AddComponent<Phase5AutonomousSession>();
+        AutonomousTrainingSession component =
+            match.gameObject.AddComponent<AutonomousTrainingSession>();
         component.Initialize(areaId, match, candidate, opponent);
     }
 
@@ -195,7 +196,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
     {
         if (!Enabled || owner == null)
             return false;
-        foreach (Phase5AutonomousSession session in Instances)
+        foreach (AutonomousTrainingSession session in Instances)
         {
             if (session == null || session.match != owner || !session.initialized)
                 continue;
@@ -205,7 +206,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
             {
                 session.suppressedAgentResets++;
                 UnityEngine.Debug.Log(
-                    "[Phase5Autonomous] suppressed post-session agent reset method="
+                    "[AutonomousTraining] suppressed post-session agent reset method="
                     + method + " area=" + session.areaId);
                 return true;
             }
@@ -214,13 +215,13 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
                 session.pendingAgentResetSuppression = false;
                 session.suppressedAgentResets++;
                 UnityEngine.Debug.Log(
-                    "[Phase5Autonomous] suppressed duplicate agent reset method="
+                    "[AutonomousTraining] suppressed duplicate agent reset method="
                     + method + " area=" + session.areaId);
                 return true;
             }
             session.resetCorruptions++;
             UnityEngine.Debug.LogError(
-                "[Phase5Autonomous] unexpected agent-driven reset method="
+                "[AutonomousTraining] unexpected agent-driven reset method="
                 + method + " area=" + session.areaId);
             return true;
         }
@@ -236,7 +237,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
     {
         if (!Enabled || owner == null)
             return;
-        foreach (Phase5AutonomousSession session in Instances)
+        foreach (AutonomousTrainingSession session in Instances)
         {
             if (session == null || session.match != owner || !session.initialized)
                 continue;
@@ -282,7 +283,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
             FailInstance("manual_input_controller_present");
             return;
         }
-        if (!Phase5ProceduralArenaRuntime.TryGetAreaDescriptor(
+        if (!ProceduralArenaRuntime.TryGetAreaDescriptor(
             areaId,
             out layoutSeed,
             out layoutSplit,
@@ -292,7 +293,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
             out requestedInitialLos,
             out optionalGeodesicRouteLength))
         {
-            if (Phase5GenericPrivilegedTeacher.Enabled
+            if (PrivilegedTeacher.Enabled
                 && DemoMapRuntime.ControlEnabled
                 && DemoMapRuntime.IsValid)
             {
@@ -315,9 +316,9 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
             }
         }
 
-        telemetry = candidate.GetComponent<Phase5MapIndependentTelemetry>();
+        telemetry = candidate.GetComponent<MapIndependentTelemetry>();
         if (telemetry == null)
-            telemetry = candidate.gameObject.AddComponent<Phase5MapIndependentTelemetry>();
+            telemetry = candidate.gameObject.AddComponent<MapIndependentTelemetry>();
         telemetry.Initialize(candidate);
 
         match.OnKill += OnKill;
@@ -329,7 +330,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
         pendingAgentResetSuppression = true;
         BeginSession(true);
         UnityEngine.Debug.Log(
-            "[Phase5Autonomous] initialized area=" + areaId
+            "[AutonomousTraining] initialized area=" + areaId
             + " preset=" + preset.name
             + " seed=" + layoutSeed
             + " target_sessions=" + targetSessions);
@@ -432,7 +433,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
             candidate.Weapon.ExternalFireSuppressed = preset.name == "reacquire_search";
         challengeStartedAt = Time.time;
         UnityEngine.Debug.Log(
-            "[Phase5Autonomous] challenger area=" + areaId
+            "[AutonomousTraining] challenger area=" + areaId
             + " session=" + sessionOrdinal
             + " index=" + currentChallenge
             + " id=" + spec.id
@@ -707,10 +708,10 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
         {
             telemetry.BuildObservation(actorObservation, true);
             int mode = 0;
-            float best = actorObservation[Phase5ActorObservationLayout.TacticalMode];
+            float best = actorObservation[ActorObservationContract.TacticalMode];
             for (int index = 1; index < 4; index++)
             {
-                float value = actorObservation[Phase5ActorObservationLayout.TacticalMode + index];
+                float value = actorObservation[ActorObservationContract.TacticalMode + index];
                 if (value > best)
                 {
                     best = value;
@@ -721,7 +722,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
 
             if (preset.name == "reacquire_search" && !los)
             {
-                int memoryAt = Phase5ActorObservationLayout.LastSeenMemory;
+                int memoryAt = ActorObservationContract.LastSeenMemory;
                 bool memoryValid = actorObservation[memoryAt] > 0.5f;
                 float localNorm = Mathf.Sqrt(
                     actorObservation[memoryAt + 1] * actorObservation[memoryAt + 1]
@@ -760,7 +761,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
         catch (Exception ex)
         {
             missingTelemetry++;
-            UnityEngine.Debug.LogError("[Phase5Autonomous] telemetry sample failed: " + ex.Message);
+            UnityEngine.Debug.LogError("[AutonomousTraining] telemetry sample failed: " + ex.Message);
         }
         if (reacquiredThisStep)
             TriggerReacquired();
@@ -783,7 +784,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
         {
             resetCorruptions++;
             UnityEngine.Debug.LogError(
-                "[Phase5Autonomous] reset audit failed area=" + areaId + " reason=" + reason);
+                "[AutonomousTraining] reset audit failed area=" + areaId + " reason=" + reason);
         }
     }
 
@@ -803,7 +804,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
 
     private bool QueueCountIsZero(string fieldName)
     {
-        FieldInfo field = typeof(Phase5MapIndependentTelemetry).GetField(
+        FieldInfo field = typeof(MapIndependentTelemetry).GetField(
             fieldName,
             BindingFlags.Instance | BindingFlags.NonPublic);
         object value = field != null ? field.GetValue(telemetry) : null;
@@ -814,7 +815,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
 
     private bool BoolFieldIsFalse(string fieldName)
     {
-        FieldInfo field = typeof(Phase5MapIndependentTelemetry).GetField(
+        FieldInfo field = typeof(MapIndependentTelemetry).GetField(
             fieldName,
             BindingFlags.Instance | BindingFlags.NonPublic);
         return field != null && field.FieldType == typeof(bool)
@@ -919,7 +920,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
         resetCorruptions++;
         initialized = false;
         globalFailure = reason;
-        UnityEngine.Debug.LogError("[Phase5Autonomous] " + reason + " area=" + areaId);
+        UnityEngine.Debug.LogError("[AutonomousTraining] " + reason + " area=" + areaId);
         if (Application.isBatchMode)
             Application.Quit(87);
     }
@@ -927,7 +928,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
     private static bool FailGlobal(string reason)
     {
         globalFailure = reason;
-        UnityEngine.Debug.LogError("[Phase5Autonomous] " + reason);
+        UnityEngine.Debug.LogError("[AutonomousTraining] " + reason);
         if (Application.isBatchMode)
             Application.Quit(87);
         return false;
@@ -949,7 +950,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
         int corruptions = 0;
         int missing = 0;
         int suppressed = 0;
-        foreach (Phase5AutonomousSession session in Instances)
+        foreach (AutonomousTrainingSession session in Instances)
         {
             if (session == null)
                 continue;
@@ -1003,7 +1004,7 @@ public sealed class Phase5AutonomousSession : MonoBehaviour
         }
         catch (Exception ex)
         {
-            UnityEngine.Debug.LogError("[Phase5Autonomous] audit write failed: " + ex);
+            UnityEngine.Debug.LogError("[AutonomousTraining] audit write failed: " + ex);
         }
     }
 

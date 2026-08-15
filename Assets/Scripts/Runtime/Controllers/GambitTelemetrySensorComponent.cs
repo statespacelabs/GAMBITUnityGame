@@ -16,9 +16,8 @@ public class GambitTelemetrySensorComponent : SensorComponent
 
 public class GambitTelemetrySensor : ISensor
 {
-    private const int OBS_DIM = 45;
     private readonly GambitAgentController agent;
-    private readonly float[] cache = new float[OBS_DIM];
+    private readonly float[] cache = new float[LocalObservationContract.Size];
     private bool hasCache = false;
 
     public GambitTelemetrySensor(GambitAgentController agent)
@@ -28,7 +27,7 @@ public class GambitTelemetrySensor : ISensor
 
     public ObservationSpec GetObservationSpec()
     {
-        return ObservationSpec.Vector(OBS_DIM);
+        return ObservationSpec.Vector(LocalObservationContract.Size);
     }
 
     public int Write(ObservationWriter writer)
@@ -38,11 +37,11 @@ public class GambitTelemetrySensor : ISensor
             agent.BuildTelemetryObservation(cache, false);
             hasCache = true;
         }
-        for (int i = 0; i < OBS_DIM; i++)
+        for (int i = 0; i < LocalObservationContract.Size; i++)
         {
             writer[i] = cache[i];
         }
-        return OBS_DIM;
+        return LocalObservationContract.Size;
     }
 
     public byte[] GetCompressedObservation()
@@ -68,6 +67,6 @@ public class GambitTelemetrySensor : ISensor
 
     public string GetName()
     {
-        return "GambitTelemetry";
+        return LocalObservationContract.SchemaId;
     }
 }

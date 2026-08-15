@@ -6,7 +6,7 @@ using UnityEngine.Rendering;
 /// Two-factor exception used only for Goal 13's final attended rendered smoke.
 /// It never enables training, visual observations, or the headless runtime.
 /// </summary>
-public static class Phase5RenderedSmokeRuntime
+public static class RenderedSmokeRuntime
 {
     public const string LaunchFlag = "--phase5-rendered-smoke";
 

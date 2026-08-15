@@ -1,16 +1,17 @@
 using UnityEngine;
 
 /// <summary>
-/// Phase 4.4 trial monitor. It is attached only for PHASE4_4_ENABLE_SPAWN_BUCKETS=1
+/// Trial timeout monitor. It is attached only for PHASE4_4_ENABLE_SPAWN_BUCKETS=1.
 /// and records contact, engagement, and timeout termination labels.
 /// </summary>
-public class Phase44TrialTimeoutController : MonoBehaviour
+[UnityEngine.Scripting.APIUpdating.MovedFrom(true, null, null, "Phase44TrialTimeoutController")]
+public class TrialTimeoutController : MonoBehaviour
 {
     private MatchManager matchManager;
     private PlayerBody playerA;
     private PlayerBody playerB;
-    private Phase44SpawnBucketController.SpawnPlan originalPlan;
-    private Phase44SpawnBucketController.SpawnPlan currentPlan;
+    private SpawnBucketController.SpawnPlan originalPlan;
+    private SpawnBucketController.SpawnPlan currentPlan;
     private bool initialized;
     private bool active;
     private bool finished;
@@ -33,7 +34,7 @@ public class Phase44TrialTimeoutController : MonoBehaviour
         MatchManager mm,
         PlayerBody pA,
         PlayerBody pB,
-        Phase44SpawnBucketController.SpawnPlan spawnPlan,
+        SpawnBucketController.SpawnPlan spawnPlan,
         int areaId)
     {
         if (!spawnPlan.Enabled)
@@ -60,7 +61,7 @@ public class Phase44TrialTimeoutController : MonoBehaviour
             return;
 
         float elapsed = Time.time - trialStartTime;
-        bool los = Phase44SpawnBucketController.HasLineOfSightBetween(playerA, playerB);
+        bool los = SpawnBucketController.HasLineOfSightBetween(playerA, playerB);
         if (los && timeToFirstLos < 0f)
             timeToFirstLos = elapsed;
         if (timeToFirstLos >= 0f && lastLos && !los)
@@ -149,7 +150,7 @@ public class Phase44TrialTimeoutController : MonoBehaviour
         if (lastLos)
             timeToFirstLos = 0f;
 
-        Phase44SpawnTelemetry.WriteSpawn(
+        SpawnTelemetryWriter.WriteSpawn(
             currentPlan,
             trialIndex,
             0f,
@@ -165,11 +166,11 @@ public class Phase44TrialTimeoutController : MonoBehaviour
         if (!currentPlan.SpawnConstraintSatisfied)
         {
             EndTrial("spawn_constraint_failed", false);
-            Debug.LogWarning($"[Phase44Trial] area={currentPlan.AreaId} trial={trialIndex} spawn constraint failed: {currentPlan.SpawnConstraintFailureReason}");
+            Debug.LogWarning($"[TrialTimeout] area={currentPlan.AreaId} trial={trialIndex} spawn constraint failed: {currentPlan.SpawnConstraintFailureReason}");
         }
         else
         {
-            Debug.Log($"[Phase44Trial] area={currentPlan.AreaId} trial={trialIndex} started reason={reason} max={currentPlan.TrialMaxSeconds:F1}s");
+            Debug.Log($"[TrialTimeout] area={currentPlan.AreaId} trial={trialIndex} started reason={reason} max={currentPlan.TrialMaxSeconds:F1}s");
         }
     }
 
@@ -178,7 +179,7 @@ public class Phase44TrialTimeoutController : MonoBehaviour
         if (playerA == null || playerB == null)
             return;
         currentPlan.SpawnDistance = Vector3.Distance(playerA.transform.position, playerB.transform.position);
-        currentPlan.InitialLineOfSight = Phase44SpawnBucketController.HasLineOfSightBetween(playerA, playerB);
+        currentPlan.InitialLineOfSight = SpawnBucketController.HasLineOfSightBetween(playerA, playerB);
         currentPlan.ObstacleBetweenPlayers = !currentPlan.InitialLineOfSight;
     }
 
@@ -262,7 +263,7 @@ public class Phase44TrialTimeoutController : MonoBehaviour
         if (finished)
             return;
         float elapsed = Mathf.Max(0f, Time.time - trialStartTime);
-        Phase44SpawnTelemetry.WriteTermination(
+        SpawnTelemetryWriter.WriteTermination(
             currentPlan,
             trialIndex,
             elapsed,
@@ -278,11 +279,11 @@ public class Phase44TrialTimeoutController : MonoBehaviour
 
         finished = true;
         active = false;
-        Debug.Log($"[Phase44Trial] area={currentPlan.AreaId} trial={trialIndex} termination={reason} elapsed={elapsed:F2}s");
+        Debug.Log($"[TrialTimeout] area={currentPlan.AreaId} trial={trialIndex} termination={reason} elapsed={elapsed:F2}s");
 
         if (resetRound)
         {
-            Phase45LiveTelemetryBridge bridge = UnityEngine.Object.FindObjectOfType<Phase45LiveTelemetryBridge>();
+            LiveTelemetryBridge bridge = UnityEngine.Object.FindObjectOfType<LiveTelemetryBridge>();
             if (bridge != null && bridge.CompleteTrialFromGuardedTimeout(reason))
                 return;
         }

@@ -601,7 +601,7 @@ public class GameModeBootstrapper : MonoBehaviour
                 controller = bot;
                 break;
             case ControllerType.RLBot:
-                // Interactive GAMBIT matches use the bundled, frozen Phase 6
+                // Interactive GAMBIT matches use the bundled frozen ONNX
                 // policy in-process. Research launches retain the ML-Agents
                 // controller so mlagents-learn can connect as before.
                 if (!AllowEnvironmentOverrides)
@@ -611,8 +611,8 @@ public class GameModeBootstrapper : MonoBehaviour
                     GambitAgentController telemetryHelper =
                         body.gameObject.AddComponent<GambitAgentController>();
                     telemetryHelper.enabled = false;
-                    Phase6UnityOnnxController onnxController =
-                        body.gameObject.AddComponent<Phase6UnityOnnxController>();
+                    OnnxPolicyController onnxController =
+                        body.gameObject.AddComponent<OnnxPolicyController>();
                     onnxController.TelemetryHelper = telemetryHelper;
                     body.SetController(onnxController);
                     body.gameObject.SetActive(onnxWasActive);
@@ -638,7 +638,14 @@ public class GameModeBootstrapper : MonoBehaviour
                 gbp.BehaviorName = "GambitAgent";
                 gbp.BrainParameters.VectorObservationSize = 0;
                 gbp.BrainParameters.ActionSpec = new Unity.MLAgents.Actuators.ActionSpec(
-                    4, new int[] { 2, 2, 2, 2 });
+                    PolicyActionContract.ContinuousCount,
+                    new int[]
+                    {
+                        PolicyActionContract.BinaryBranchSize,
+                        PolicyActionContract.BinaryBranchSize,
+                        PolicyActionContract.BinaryBranchSize,
+                        PolicyActionContract.BinaryBranchSize
+                    });
 
                 GameObject agentCamObj = new GameObject("AgentCam_" + body.Identity.DisplayName);
                 agentCamObj.transform.SetParent(body.transform);

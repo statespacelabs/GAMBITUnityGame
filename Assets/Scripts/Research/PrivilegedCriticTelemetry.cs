@@ -8,10 +8,10 @@ using UnityEngine.AI;
 /// actor export. The actor prefix and policy-owned tactical state are copied
 /// verbatim before the privileged suffix.
 /// </summary>
-public static class Phase5PrivilegedCriticTelemetry
+public static class PrivilegedCriticTelemetry
 {
     public const string SchemaId = "phase5_privileged_critic_obs_v001";
-    public const int ActorSize = 231;
+    public const int ActorSize = ActorObservationContract.Size;
     public const int TacticalStateSize = 132;
     public const int PrivilegedOffset = 363;
     public const int PrivilegedSize = 65;

@@ -6,14 +6,15 @@ using UnityEngine;
 using UnityEngine.AI;
 
 /// <summary>
-/// Phase 5 DAgger-only privileged navigation teacher.
+/// DAgger-only privileged navigation teacher.
 ///
 /// The teacher is not an ML-Agents sensor. Exact target state and temporary
 /// NavMesh/A* routes are used only to create labels and select the executed
 /// command. The stored student input is phase5_actor_obs_v001, and no world
 /// coordinate, map identifier, path node, or waypoint is written to it.
 /// </summary>
-public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
+[UnityEngine.Scripting.APIUpdating.MovedFrom(true, null, null, "Phase5GenericPrivilegedTeacher")]
+public sealed class PrivilegedTeacher : MonoBehaviour
 {
     public const string LabelSchema = "phase5_teacher_label_v001";
     public const string RolloutSchema = "phase5_dagger_rollout_v001";
@@ -30,10 +31,10 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
         REACQUIRE_LAST_SEEN = 6,
     }
 
-    private static readonly Dictionary<PlayerBody, Phase5GenericPrivilegedTeacher> ByBody =
-        new Dictionary<PlayerBody, Phase5GenericPrivilegedTeacher>();
-    private static readonly List<Phase5GenericPrivilegedTeacher> Instances =
-        new List<Phase5GenericPrivilegedTeacher>();
+    private static readonly Dictionary<PlayerBody, PrivilegedTeacher> ByBody =
+        new Dictionary<PlayerBody, PrivilegedTeacher>();
+    private static readonly List<PrivilegedTeacher> Instances =
+        new List<PrivilegedTeacher>();
     private static StreamWriter writer;
     private static bool outputInitialized;
     private static bool outputFinalized;
@@ -53,7 +54,7 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
     private MatchManager match;
     private PlayerBody candidate;
     private PlayerBody opponent;
-    private Phase5MapIndependentTelemetry actorTelemetry;
+    private MapIndependentTelemetry actorTelemetry;
     private System.Random random;
     private float controlProbability;
     private string roundId = "";
@@ -81,7 +82,7 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
     private readonly Queue<PlayerCommand> delayedTeacherCommands =
         new Queue<PlayerCommand>();
     private readonly float[] actorObservation =
-        new float[Phase5ActorObservationLayout.ObservationSize];
+        new float[ActorObservationContract.Size];
 
     public static bool Enabled
     {
@@ -101,9 +102,9 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
             return true;
         if (raw != "1")
             return FailGlobal("enable_flag_invalid:" + raw);
-        if (!Phase5HeadlessRuntime.Enabled && !Phase5RenderedSmokeRuntime.Enabled)
+        if (!HeadlessTrainingRuntime.Enabled && !RenderedSmokeRuntime.Enabled)
             return FailGlobal("requires_phase5_headless");
-        if (!Phase5AutonomousSession.Enabled)
+        if (!AutonomousTrainingSession.Enabled)
             return FailGlobal("requires_phase5_autonomous_session");
         if ((Environment.GetEnvironmentVariable("ENABLE_VISUAL_OBS") ?? "0") == "1")
             return FailGlobal("visual_observations_forbidden");
@@ -125,8 +126,8 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
             Environment.GetEnvironmentVariable("PHASE5_TEACHER_CONTROL_PROBABILITY"),
             out float _))
             return FailGlobal("teacher_control_probability_invalid");
-        bool procedural = Phase5ProceduralArenaRuntime.Enabled
-            && Phase5ProceduralArenaRuntime.IsValid;
+        bool procedural = ProceduralArenaRuntime.Enabled
+            && ProceduralArenaRuntime.IsValid;
         bool authored = DemoMapRuntime.ControlEnabled && DemoMapRuntime.IsValid;
         if (!procedural && !authored)
             return FailGlobal("requires_procedural_or_authored_map_runtime");
@@ -147,8 +148,8 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
             FailGlobal("attach_references_missing");
             return;
         }
-        Phase5GenericPrivilegedTeacher component =
-            match.gameObject.AddComponent<Phase5GenericPrivilegedTeacher>();
+        PrivilegedTeacher component =
+            match.gameObject.AddComponent<PrivilegedTeacher>();
         component.Initialize(areaId, match, candidate, opponent);
     }
 
@@ -162,7 +163,7 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
     {
         if (!Enabled || body == null)
             return policyCommand;
-        if (!ByBody.TryGetValue(body, out Phase5GenericPrivilegedTeacher teacher)
+        if (!ByBody.TryGetValue(body, out PrivilegedTeacher teacher)
             || teacher == null)
             return policyCommand;
         return teacher.Resolve(policyCommand);
@@ -190,9 +191,9 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
             FailInstance("control_probability_invalid");
             return;
         }
-        actorTelemetry = candidate.GetComponent<Phase5MapIndependentTelemetry>();
+        actorTelemetry = candidate.GetComponent<MapIndependentTelemetry>();
         if (actorTelemetry == null)
-            actorTelemetry = candidate.gameObject.AddComponent<Phase5MapIndependentTelemetry>();
+            actorTelemetry = candidate.gameObject.AddComponent<MapIndependentTelemetry>();
         actorTelemetry.Initialize(candidate);
         random = new System.Random(MixSeed(baseSeed, areaId, 0));
         previousPosition = candidate.transform.position;
@@ -203,7 +204,7 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
         Instances.Add(this);
         ResetTeacherState();
         Debug.Log(
-            "[Phase5Teacher] initialized area=" + areaId
+            "[PrivilegedTeacher] initialized area=" + areaId
             + " round=" + roundId
             + " control_probability="
             + controlProbability.ToString("F2", CultureInfo.InvariantCulture));
@@ -277,7 +278,7 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
             observationFailure = true;
             globalObservationFailures++;
             globalFailure = "observation_failure:" + ex.Message;
-            Debug.LogError("[Phase5Teacher] " + globalFailure);
+            Debug.LogError("[PrivilegedTeacher] " + globalFailure);
             WriteFailureRow(policyCommand, "OBSERVATION_FAILURE");
             return policyCommand;
         }
@@ -370,7 +371,7 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
         {
             schema_version = RolloutSchema,
             label_schema = LabelSchema,
-            student_observation_schema = Phase5ActorObservationLayout.SchemaId,
+            student_observation_schema = ActorObservationContract.SchemaId,
             run_id = runId,
             round_id = roundId,
             fixed_step = fixedStep,
@@ -533,7 +534,7 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
         for (int ray = 0; ray < 32; ray++)
         {
             float distance = actorObservation[
-                Phase5ActorObservationLayout.TorsoRays + ray * 2];
+                ActorObservationContract.TorsoRays + ray * 2];
             float signedAngle = ray <= 16 ? ray * 11.25f : (ray - 32) * 11.25f;
             float sidePreference = wallSide * signedAngle >= -1f ? 0.12f : -0.08f;
             float forwardPreference = 0.10f
@@ -562,7 +563,7 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
         {
             schema_version = RolloutSchema,
             label_schema = LabelSchema,
-            student_observation_schema = Phase5ActorObservationLayout.SchemaId,
+            student_observation_schema = ActorObservationContract.SchemaId,
             run_id = runId,
             round_id = roundId,
             fixed_step = fixedStep,
@@ -612,7 +613,7 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
         {
             globalWriteFailures++;
             globalFailure = "trace_write_failed:" + ex.Message;
-            Debug.LogError("[Phase5Teacher] " + globalFailure);
+            Debug.LogError("[PrivilegedTeacher] " + globalFailure);
         }
     }
 
@@ -671,18 +672,18 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
             string path = Environment.GetEnvironmentVariable("PHASE5_TEACHER_SUMMARY_PATH");
             EnsureParent(path);
             File.WriteAllText(path, JsonUtility.ToJson(summary, true) + "\n");
-            Debug.Log("[Phase5TeacherSummary] " + JsonUtility.ToJson(summary));
+            Debug.Log("[PrivilegedTeacherSummary] " + JsonUtility.ToJson(summary));
         }
         catch (Exception ex)
         {
-            Debug.LogError("[Phase5Teacher] summary write failed: " + ex);
+            Debug.LogError("[PrivilegedTeacher] summary write failed: " + ex);
         }
     }
 
     private void FailInstance(string reason)
     {
         globalFailure = reason;
-        Debug.LogError("[Phase5Teacher] " + reason + " area=" + areaId);
+        Debug.LogError("[PrivilegedTeacher] " + reason + " area=" + areaId);
         if (Application.isBatchMode)
             Application.Quit(88);
     }
@@ -690,7 +691,7 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
     private static bool FailGlobal(string reason)
     {
         globalFailure = reason;
-        Debug.LogError("[Phase5Teacher] " + reason);
+        Debug.LogError("[PrivilegedTeacher] " + reason);
         if (Application.isBatchMode)
             Application.Quit(88);
         return false;
@@ -882,7 +883,7 @@ public sealed class Phase5GenericPrivilegedTeacher : MonoBehaviour
                 source = "runtime_navmesh";
                 return true;
             }
-            if (Phase5ProceduralArenaRuntime.TryGetPrivilegedTeacherGeometry(
+            if (ProceduralArenaRuntime.TryGetPrivilegedTeacherGeometry(
                 areaId,
                 out Bounds floor,
                 out Bounds[] obstacles))

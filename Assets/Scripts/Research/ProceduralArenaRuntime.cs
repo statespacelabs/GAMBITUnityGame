@@ -6,11 +6,11 @@ using System.Security.Cryptography;
 using UnityEngine;
 
 /// <summary>
-/// Opt-in, fail-closed Phase 5 primitive arena loader. Layout manifests are
+/// Opt-in, fail-closed procedural arena loader. Layout manifests are
 /// generated and validated offline; this class only constructs simulation
 /// colliders and never exposes manifest or connectivity data to actor sensors.
 /// </summary>
-public static class Phase5ProceduralArenaRuntime
+public static class ProceduralArenaRuntime
 {
     public const string LayoutSchema = "phase5_procedural_layout_v001";
     public const string SuiteSchema = "phase5_procedural_layout_suite_v001";
@@ -46,7 +46,7 @@ public static class Phase5ProceduralArenaRuntime
             return true;
         }
 
-        if (!Phase5HeadlessRuntime.Enabled)
+        if (!HeadlessTrainingRuntime.Enabled)
             return Fail("requires_phase5_headless");
         if ((Environment.GetEnvironmentVariable("PHASE4_MAP_CONTROL_ENABLED") ?? "0").Trim() == "1")
             return Fail("phase4_map_control_conflict");
@@ -98,7 +98,7 @@ public static class Phase5ProceduralArenaRuntime
 
         valid = true;
         failureReason = "";
-        Debug.Log("[Phase5Layouts] initialized split=" + manifest.split
+        Debug.Log("[ProceduralArena] initialized split=" + manifest.split
             + " areas=" + numAreas + " manifest_sha256=" + manifestSha256);
         return true;
     }
@@ -112,14 +112,14 @@ public static class Phase5ProceduralArenaRuntime
             return area != null && area.built;
 
         LayoutRecord layout = area.layout;
-        GameObject rootObject = new GameObject("_Phase5ProceduralLayout_" + areaId + "_" + layout.seed);
+        GameObject rootObject = new GameObject("_ProceduralArena_" + areaId + "_" + layout.seed);
         rootObject.transform.SetParent(arenaParent, false);
         rootObject.transform.localPosition = new Vector3(0f, IsolationHeight, 0f);
         area.root = rootObject;
         area.origin = areaOffset + new Vector3(0f, IsolationHeight, 0f);
 
         area.floor = AddBox(rootObject.transform, "floor", layout.floor, null);
-        PhysicMaterial floorMaterial = new PhysicMaterial("Phase5Floor_" + layout.seed);
+        PhysicMaterial floorMaterial = new PhysicMaterial("ProceduralFloor_" + layout.seed);
         floorMaterial.dynamicFriction = layout.parameters.floor_dynamic_friction;
         floorMaterial.staticFriction = layout.parameters.floor_static_friction;
         floorMaterial.frictionCombine = PhysicMaterialCombine.Average;
@@ -229,7 +229,7 @@ public static class Phase5ProceduralArenaRuntime
     {
         floorBounds = new Bounds();
         obstacleBounds = new Bounds[0];
-        if (!Phase5GenericPrivilegedTeacher.Enabled)
+        if (!PrivilegedTeacher.Enabled)
             return false;
         AreaRuntime area = FindArea(areaId);
         if (!enabled || !valid || area == null || !area.built || area.floor == null)
@@ -263,7 +263,7 @@ public static class Phase5ProceduralArenaRuntime
         floor = null;
         obstacles = new Collider[0];
         bounds = new Bounds();
-        if (!Phase5RuntimeNavMesh.Enabled)
+        if (!RuntimeNavMesh.Enabled)
             return false;
         AreaRuntime area = FindArea(areaId);
         if (!enabled || !valid || area == null || !area.built || area.floor == null)
@@ -322,7 +322,7 @@ public static class Phase5ProceduralArenaRuntime
         {
             return Fail("audit_write_failed:" + ex.Message);
         }
-        Debug.Log("[Phase5LayoutsAudit] " + JsonUtility.ToJson(output));
+        Debug.Log("[ProceduralArenaAudit] " + JsonUtility.ToJson(output));
         if (!allPassed)
             return Fail("runtime_audit_failed");
         return true;
@@ -532,7 +532,7 @@ public static class Phase5ProceduralArenaRuntime
     {
         valid = false;
         failureReason = reason;
-        Debug.LogError("[Phase5Layouts] " + reason);
+        Debug.LogError("[ProceduralArena] " + reason);
         if (enabled && Application.isBatchMode)
             Application.Quit(86);
         return false;

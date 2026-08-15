@@ -4,10 +4,10 @@ using System.IO;
 using UnityEngine;
 
 /// <summary>
-/// JSONL telemetry writer for Phase 4.4 controlled spawn and trial termination
+/// JSONL telemetry writer for controlled spawns and trial termination.
 /// diagnostics. It writes only when PHASE4_4_WRITE_SPAWN_TELEMETRY=1.
 /// </summary>
-public static class Phase44SpawnTelemetry
+public static class SpawnTelemetryWriter
 {
     public static bool IsEnabled()
     {
@@ -23,7 +23,7 @@ public static class Phase44SpawnTelemetry
     }
 
     public static void WriteSpawn(
-        Phase44SpawnBucketController.SpawnPlan plan,
+        SpawnBucketController.SpawnPlan plan,
         int trialIndex,
         float elapsedSeconds,
         float timeToFirstLos,
@@ -52,7 +52,7 @@ public static class Phase44SpawnTelemetry
     }
 
     public static void WriteTermination(
-        Phase44SpawnBucketController.SpawnPlan plan,
+        SpawnBucketController.SpawnPlan plan,
         int trialIndex,
         float elapsedSeconds,
         string terminationReason,
@@ -83,7 +83,7 @@ public static class Phase44SpawnTelemetry
 
     private static void WriteRow(
         string eventType,
-        Phase44SpawnBucketController.SpawnPlan plan,
+        SpawnBucketController.SpawnPlan plan,
         int trialIndex,
         float elapsedSeconds,
         string terminationReason,
@@ -99,7 +99,7 @@ public static class Phase44SpawnTelemetry
         if (!IsEnabled())
             return;
 
-        Phase44TelemetryRow row = new Phase44TelemetryRow();
+        SpawnTelemetryRow row = new SpawnTelemetryRow();
         row.timestamp = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
         row.event_type = eventType;
         row.area_id = plan.AreaId;
@@ -160,12 +160,12 @@ public static class Phase44SpawnTelemetry
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[Phase44Telemetry] Failed to write telemetry: {ex.Message}");
+            Debug.LogError($"[SpawnTelemetry] Failed to write telemetry: {ex.Message}");
         }
     }
 
     [Serializable]
-    private class Phase44TelemetryRow
+    private class SpawnTelemetryRow
     {
         public string timestamp;
         public string event_type;

@@ -4,10 +4,11 @@ using System.IO;
 using UnityEngine;
 
 /// <summary>
-/// Runtime leakage probe for the actual Unity phase5_actor_obs_v001 sensor.
+/// Runtime leakage probe for the actor-observation sensor.
 /// Enabled only by PHASE5_TELEMETRY_LEAKAGE_PROBE=1.
 /// </summary>
-public sealed class Phase5TelemetryLeakageProbe : MonoBehaviour
+[UnityEngine.Scripting.APIUpdating.MovedFrom(true, null, null, "Phase5TelemetryLeakageProbe")]
+public sealed class TelemetryLeakageProbe : MonoBehaviour
 {
     [Serializable]
     private sealed class ProbeResult
@@ -29,9 +30,9 @@ public sealed class Phase5TelemetryLeakageProbe : MonoBehaviour
     {
         if (Environment.GetEnvironmentVariable("PHASE5_TELEMETRY_LEAKAGE_PROBE") != "1")
             return;
-        if (UnityEngine.Object.FindObjectOfType<Phase5TelemetryLeakageProbe>() != null)
+        if (UnityEngine.Object.FindObjectOfType<TelemetryLeakageProbe>() != null)
             return;
-        new GameObject("_Phase5TelemetryLeakageProbe").AddComponent<Phase5TelemetryLeakageProbe>();
+        new GameObject("_TelemetryLeakageProbe").AddComponent<TelemetryLeakageProbe>();
     }
 
     private IEnumerator Start()
@@ -47,14 +48,14 @@ public sealed class Phase5TelemetryLeakageProbe : MonoBehaviour
                 Directory.CreateDirectory(parent);
             File.WriteAllText(path, JsonUtility.ToJson(result, true) + "\n");
         }
-        Debug.Log("[Phase5TelemetryLeakageProbe] " + JsonUtility.ToJson(result));
+        Debug.Log("[TelemetryLeakageProbe] " + JsonUtility.ToJson(result));
     }
 
     private ProbeResult RunProbe()
     {
         ProbeResult result = new ProbeResult();
         GameObject root = null;
-        Phase5MapIndependentTelemetry telemetry = null;
+        MapIndependentTelemetry telemetry = null;
         PlayerBody self = null;
         PlayerBody enemy = null;
         Vector3 originalSelfPosition = Vector3.zero;
@@ -63,7 +64,7 @@ public sealed class Phase5TelemetryLeakageProbe : MonoBehaviour
         Quaternion originalEnemyRotation = Quaternion.identity;
         try
         {
-            Phase5MapIndependentTelemetry[] sensors = UnityEngine.Object.FindObjectsOfType<Phase5MapIndependentTelemetry>(true);
+            MapIndependentTelemetry[] sensors = UnityEngine.Object.FindObjectsOfType<MapIndependentTelemetry>(true);
             if (sensors.Length == 0)
                 throw new InvalidOperationException("no phase5_actor_obs_v001 sensor found");
             telemetry = sensors[0];
@@ -76,7 +77,7 @@ public sealed class Phase5TelemetryLeakageProbe : MonoBehaviour
             originalEnemyPosition = enemy.transform.position;
             originalEnemyRotation = enemy.transform.rotation;
 
-            root = new GameObject("_Phase5LeakageGeometry");
+            root = new GameObject("_TelemetryLeakageGeometry");
             GameObject floor = CreateBox(root.transform, "Floor", new Vector3(0f, 998.8f, 0f), new Vector3(80f, 0.2f, 80f));
             GameObject wall = CreateBox(root.transform, "Occluder", new Vector3(0f, 1001f, 4f), new Vector3(20f, 4f, 0.4f));
             CreateBox(root.transform, "ObstacleLeft", new Vector3(-5f, 1001f, 0f), new Vector3(1f, 3f, 4f));
@@ -86,16 +87,16 @@ public sealed class Phase5TelemetryLeakageProbe : MonoBehaviour
             Teleport(enemy, new Vector3(0f, 1000f, 8f), Quaternion.Euler(0f, 180f, 0f));
             Physics.SyncTransforms();
             telemetry.ResetMemory();
-            float[] hiddenBefore = new float[Phase5ActorObservationLayout.ObservationSize];
-            float[] hiddenAfter = new float[Phase5ActorObservationLayout.ObservationSize];
+            float[] hiddenBefore = new float[ActorObservationContract.Size];
+            float[] hiddenAfter = new float[ActorObservationContract.Size];
             telemetry.BuildObservation(hiddenBefore, false);
             Teleport(enemy, new Vector3(3f, 1000f, 12f), Quaternion.Euler(0f, 180f, 0f));
             Physics.SyncTransforms();
             telemetry.BuildObservation(hiddenAfter, false);
             result.actor_dimension = hiddenBefore.Length;
-            result.actor_dimension_valid = hiddenBefore.Length == Phase5ActorObservationLayout.ObservationSize;
-            result.hidden_enemy_los_false_before = hiddenBefore[Phase5ActorObservationLayout.VisibleEnemyState] == 0f;
-            result.hidden_enemy_los_false_after = hiddenAfter[Phase5ActorObservationLayout.VisibleEnemyState] == 0f;
+            result.actor_dimension_valid = hiddenBefore.Length == ActorObservationContract.Size;
+            result.hidden_enemy_los_false_before = hiddenBefore[ActorObservationContract.VisibleEnemyState] == 0f;
+            result.hidden_enemy_los_false_after = hiddenAfter[ActorObservationContract.VisibleEnemyState] == 0f;
             result.hidden_enemy_max_abs_error = MaxAbs(hiddenBefore, hiddenAfter);
             result.hidden_enemy_observation_unchanged = result.hidden_enemy_los_false_before
                 && result.hidden_enemy_los_false_after && result.hidden_enemy_max_abs_error <= 1e-6f;
@@ -103,7 +104,7 @@ public sealed class Phase5TelemetryLeakageProbe : MonoBehaviour
             Teleport(enemy, new Vector3(0f, 1000f, 8f), Quaternion.Euler(0f, 180f, 0f));
             Physics.SyncTransforms();
             telemetry.ResetMemory();
-            float[] rigidBefore = new float[Phase5ActorObservationLayout.ObservationSize];
+            float[] rigidBefore = new float[ActorObservationContract.Size];
             telemetry.BuildObservation(rigidBefore, false);
 
             float yawDegrees = 73f;
@@ -119,7 +120,7 @@ public sealed class Phase5TelemetryLeakageProbe : MonoBehaviour
                 rotation * Quaternion.Euler(0f, 180f, 0f));
             Physics.SyncTransforms();
             telemetry.ResetMemory();
-            float[] rigidAfter = new float[Phase5ActorObservationLayout.ObservationSize];
+            float[] rigidAfter = new float[ActorObservationContract.Size];
             telemetry.BuildObservation(rigidAfter, false);
             result.rigid_transform_max_abs_error = MaxAbs(rigidBefore, rigidAfter);
             result.rigid_transform_consistent = result.rigid_transform_max_abs_error <= 2e-5f;

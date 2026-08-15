@@ -3,10 +3,10 @@ using System.Globalization;
 using UnityEngine;
 
 /// <summary>
-/// Deterministic Phase 4.4 spawn-bucket planner. It is inert unless
+/// Deterministic spawn-bucket planner. It is inert unless
 /// PHASE4_4_ENABLE_SPAWN_BUCKETS=1.
 /// </summary>
-public static class Phase44SpawnBucketController
+public static class SpawnBucketController
 {
     private const int MaxAttempts = 512;
     private const float AreaSpacing = 500f;
@@ -154,7 +154,7 @@ public static class Phase44SpawnBucketController
         plan.SelectedAttempt = best.Attempt;
 
         Debug.Log(
-            "[Phase44Spawn] " +
+            "[SpawnBuckets] " +
             $"area={areaId} requested={requested} bucket={bucket} distance={plan.SpawnDistance:F2} " +
             $"los={(plan.InitialLineOfSight ? 1 : 0)} obstacle={(plan.ObstacleBetweenPlayers ? 1 : 0)} " +
             $"satisfied={(plan.SpawnConstraintSatisfied ? 1 : 0)} reason={plan.SpawnConstraintFailureReason}");

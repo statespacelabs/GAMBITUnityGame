@@ -4,14 +4,15 @@ using System.IO;
 using UnityEngine;
 
 /// <summary>
-/// Phase 4.5b live human telemetry bridge.
+/// Live human telemetry bridge.
 ///
 /// Enabled only when PHASE4_5_LIVE_BRIDGE=1. It consumes the Python-authored
 /// next_trial_config.json path from PHASE4_5_NEXT_TRIAL_CONFIG, records raw
 /// live Unity telemetry to live_trial_telemetry.jsonl, and writes trial_done.json.
 /// Python remains responsible for building pilot_feature_rows.csv.
 /// </summary>
-public class Phase45LiveTelemetryBridge : MonoBehaviour
+[UnityEngine.Scripting.APIUpdating.MovedFrom(true, null, null, "Phase45LiveTelemetryBridge")]
+public class LiveTelemetryBridge : MonoBehaviour
 {
     private MatchManager matchManager;
     private PlayerBody player;
@@ -74,7 +75,7 @@ public class Phase45LiveTelemetryBridge : MonoBehaviour
         configPath = Environment.GetEnvironmentVariable("PHASE4_5_NEXT_TRIAL_CONFIG") ?? "";
         if (string.IsNullOrEmpty(configPath) || !File.Exists(configPath))
         {
-            Debug.LogError($"[Phase45Bridge] Missing next trial config: {configPath}");
+            Debug.LogError($"[LiveTelemetry] Missing next trial config: {configPath}");
             enabled = false;
             return;
         }
@@ -91,14 +92,14 @@ public class Phase45LiveTelemetryBridge : MonoBehaviour
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[Phase45Bridge] Failed to parse {configPath}: {ex.Message}");
+            Debug.LogError($"[LiveTelemetry] Failed to parse {configPath}: {ex.Message}");
             enabled = false;
             return;
         }
 
         if (config == null || config.required_outputs == null)
         {
-            Debug.LogError("[Phase45Bridge] Malformed next_trial_config.json");
+            Debug.LogError("[LiveTelemetry] Malformed next_trial_config.json");
             enabled = false;
             return;
         }
@@ -161,7 +162,7 @@ public class Phase45LiveTelemetryBridge : MonoBehaviour
         InitializeSpawnDiagnostics();
         active = true;
         AppendTelemetry("trial_start", 0, 0, 0, 0, 0, 0);
-        Debug.Log($"[Phase45Bridge] Active session={config.session_id} trial={config.trial_index} telemetry={telemetryPath}");
+        Debug.Log($"[LiveTelemetry] Active session={config.session_id} trial={config.trial_index} telemetry={telemetryPath}");
     }
 
     private void Update()
@@ -242,7 +243,7 @@ public class Phase45LiveTelemetryBridge : MonoBehaviour
         if (continuousChallengers)
         {
             AppendTelemetry("continuous_challenger_respawn_pending", 0, 0, 0, 0, 0, 0);
-            Debug.Log($"[Phase45Bridge] Continuous challenger kill observed reason={reason}; trial remains active.");
+            Debug.Log($"[LiveTelemetry] Continuous challenger kill observed reason={reason}; trial remains active.");
             return;
         }
         CompleteTrial(reason);
@@ -283,14 +284,14 @@ public class Phase45LiveTelemetryBridge : MonoBehaviour
         if (ShouldDeferTerminalCompletion())
         {
             AppendTelemetry("completion_deferred_" + reason, 0, 0, 0, 0, 0, 0);
-            Debug.Log($"[Phase45Bridge] Deferring completion reason={reason} elapsed={Time.time - startTime:F2}s min={minCompleteSeconds:F2}s");
+            Debug.Log($"[LiveTelemetry] Deferring completion reason={reason} elapsed={Time.time - startTime:F2}s min={minCompleteSeconds:F2}s");
             return;
         }
         AppendTelemetry(reason, 0, 0, 0, 0, 0, 0);
         WriteTrialDone("complete", reason, false);
         finished = true;
         active = false;
-        Debug.Log($"[Phase45Bridge] Trial complete reason={reason}");
+        Debug.Log($"[LiveTelemetry] Trial complete reason={reason}");
     }
 
     public bool CompleteTrialFromGuardedTimeout(string reason)
@@ -315,7 +316,7 @@ public class Phase45LiveTelemetryBridge : MonoBehaviour
         WriteTrialDone("failed", reason, false);
         finished = true;
         active = false;
-        Debug.LogError($"[Phase45Bridge] Trial failed reason={reason}");
+        Debug.LogError($"[LiveTelemetry] Trial failed reason={reason}");
     }
 
     private float PlayerHp()
@@ -452,7 +453,7 @@ public class Phase45LiveTelemetryBridge : MonoBehaviour
         float shrink = Mathf.Clamp(1f - 0.030f * evidenceWeight, 0.90f, 0.995f);
         beliefSigma = Mathf.Clamp(beliefSigma * shrink, 120f, 750f);
         liveScoreEventCount += 1;
-        Debug.Log($"[Phase45Bridge] Live Bayesian HUD update reason={reason} score={observedScore:F2} expected={expected:F2} delta={delta:F2} mu={beliefMu:F1} sigma={beliefSigma:F1} opponent_mu={opponentRatingMu:F1}");
+        Debug.Log($"[LiveTelemetry] Live Bayesian HUD update reason={reason} score={observedScore:F2} expected={expected:F2} delta={delta:F2} mu={beliefMu:F1} sigma={beliefSigma:F1} opponent_mu={opponentRatingMu:F1}");
     }
 
     private void WriteTrialDone(string status, string reason, bool replayOrSurrogate)

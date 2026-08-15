@@ -8,24 +8,20 @@ using UnityEngine;
 using Debug = UnityEngine.Debug;
 
 /// <summary>
-/// Presentation-only Phase 6 controller that executes the frozen ONNX policy
+/// Presentation controller that executes the bundled frozen ONNX policy
 /// inside Unity. It removes the external ML-Agents/Python lockstep while keeping
 /// the actor/local45 schemas, recurrent state, safety layer, and action contract.
 /// </summary>
 [DefaultExecutionOrder(-1000)]
-public sealed class Phase6UnityOnnxController : MonoBehaviour, IPlayerController
+[UnityEngine.Scripting.APIUpdating.MovedFrom(true, null, null, "Phase6UnityOnnxController")]
+public sealed class OnnxPolicyController : MonoBehaviour, IPlayerController
 {
-    private const int ActorSize = 231;
-    private const int Local45Size = 45;
-    private const int ActionSize = 8;
-    private const int LosIndex = 193;
-
     public GambitAgentController TelemetryHelper;
 
-    private readonly float[] actor = new float[ActorSize];
-    private readonly float[] local45 = new float[Local45Size];
-    private Phase5MapIndependentTelemetry actorTelemetry;
-    private Phase6BarracudaPolicy policy;
+    private readonly float[] actor = new float[ActorObservationContract.Size];
+    private readonly float[] local45 = new float[LocalObservationContract.Size];
+    private MapIndependentTelemetry actorTelemetry;
+    private BarracudaPolicy policy;
     private MatchManager match;
     private PlayerCommand command;
     private string slot;
@@ -47,26 +43,26 @@ public sealed class Phase6UnityOnnxController : MonoBehaviour, IPlayerController
         command = PlayerCommand.NoOp;
 
         PlayerBody body = GetComponent<PlayerBody>();
-        actorTelemetry = GetComponent<Phase5MapIndependentTelemetry>();
+        actorTelemetry = GetComponent<MapIndependentTelemetry>();
         if (actorTelemetry == null)
-            actorTelemetry = gameObject.AddComponent<Phase5MapIndependentTelemetry>();
+            actorTelemetry = gameObject.AddComponent<MapIndependentTelemetry>();
         actorTelemetry.Initialize(body);
 
         if (TelemetryHelper == null)
             TelemetryHelper = GetComponent<GambitAgentController>();
         if (TelemetryHelper == null)
-            throw new InvalidOperationException("Phase6 Unity ONNX requires a telemetry helper");
+            throw new InvalidOperationException("ONNX Unity ONNX requires a telemetry helper");
         TelemetryHelper.InitializeTelemetryOnly(identity, matchManager);
 
-        policy = new Phase6BarracudaPolicy(ReadBackend());
+        policy = new BarracudaPolicy(ReadBackend());
         if (match != null)
         {
             match.OnRoundReset += ResetPolicy;
             match.OnMatchReset += ResetPolicy;
         }
-        Phase6UnityOnnxFrameMonitor.Ensure(policy.BackendName);
+        OnnxFrameMonitor.Ensure(policy.BackendName);
         initialized = true;
-        Debug.Log("[Phase6UnityONNX] initialized slot=" + slot
+        Debug.Log("[OnnxPolicy] initialized slot=" + slot
             + " backend=" + policy.BackendName + " external_python=0");
     }
 
@@ -90,7 +86,7 @@ public sealed class Phase6UnityOnnxController : MonoBehaviour, IPlayerController
             WriteParityIfNeeded(action);
             if (decisions % 250 == 0)
             {
-                Debug.Log("[Phase6UnityONNX] slot=" + slot
+                Debug.Log("[OnnxPolicy] slot=" + slot
                     + " decisions=" + decisions.ToString(CultureInfo.InvariantCulture)
                     + " mean_ms=" + (inferenceMilliseconds / decisions).ToString("F4", CultureInfo.InvariantCulture)
                     + " max_ms=" + maximumInferenceMilliseconds.ToString("F4", CultureInfo.InvariantCulture));
@@ -101,22 +97,23 @@ public sealed class Phase6UnityOnnxController : MonoBehaviour, IPlayerController
             command = PlayerCommand.NoOp;
             initialized = false;
             Debug.LogException(exception);
-            Debug.LogError("[Phase6UnityONNX] hard_stop slot=" + slot);
+            Debug.LogError("[OnnxPolicy] hard_stop slot=" + slot);
         }
     }
 
     private static PlayerCommand ToCommand(float[] action)
     {
+        PolicyActionContract.ValidateBuffer(action, nameof(action));
         return new PlayerCommand
         {
-            MoveX = Mathf.Clamp(action[0], -1f, 1f),
-            MoveZ = Mathf.Clamp(action[1], -1f, 1f),
-            Turn = Mathf.Clamp(action[2], -1f, 1f),
+            MoveX = Mathf.Clamp(action[PolicyActionContract.MoveX], -1f, 1f),
+            MoveZ = Mathf.Clamp(action[PolicyActionContract.MoveZ], -1f, 1f),
+            Turn = Mathf.Clamp(action[PolicyActionContract.Turn], -1f, 1f),
             LookPitch = 0f,
-            Shoot = action[4] > 0.5f,
-            Reload = action[5] > 0.5f,
-            Jump = action[6] > 0.5f,
-            Crouch = action[7] > 0.5f
+            Shoot = action[PolicyActionContract.Shoot] > PolicyActionContract.BinaryThreshold,
+            Reload = action[PolicyActionContract.Reload] > PolicyActionContract.BinaryThreshold,
+            Jump = action[PolicyActionContract.Jump] > PolicyActionContract.BinaryThreshold,
+            Crouch = action[PolicyActionContract.Crouch] > PolicyActionContract.BinaryThreshold
         };
     }
 
@@ -125,7 +122,7 @@ public sealed class Phase6UnityOnnxController : MonoBehaviour, IPlayerController
         command = PlayerCommand.NoOp;
         policy?.Reset();
         actorTelemetry?.ResetMemory();
-        Debug.Log("[Phase6UnityONNX] recurrent_reset slot=" + slot);
+        Debug.Log("[OnnxPolicy] recurrent_reset slot=" + slot);
     }
 
     private void OnDestroy()
@@ -140,7 +137,7 @@ public sealed class Phase6UnityOnnxController : MonoBehaviour, IPlayerController
 
     private void WriteParityIfNeeded(float[] action)
     {
-        bool visible = actor[LosIndex] > 0.5f;
+        bool visible = actor[ActorObservationContract.VisibleEnemyState] > 0.5f;
         if (wroteInitialParity && (!visible || wroteVisibleParity))
             return;
         string directory = Environment.GetEnvironmentVariable("PHASE6_UNITY_ONNX_PARITY_DIR");
@@ -148,7 +145,7 @@ public sealed class Phase6UnityOnnxController : MonoBehaviour, IPlayerController
             return;
         Directory.CreateDirectory(directory);
         string kind = !wroteInitialParity ? "initial" : "visible";
-        Phase6UnityOnnxParityRecord record = new Phase6UnityOnnxParityRecord
+        OnnxParityRecord record = new OnnxParityRecord
         {
             schema_version = "phase6_unity_onnx_parity_v001",
             backend = policy.BackendName,
@@ -178,46 +175,44 @@ public sealed class Phase6UnityOnnxController : MonoBehaviour, IPlayerController
     }
 }
 
-internal sealed class Phase6BarracudaPolicy : IDisposable
+internal sealed class BarracudaPolicy : IDisposable
 {
-    private const int ActorSize = 231;
-    private const int Local45Size = 45;
-    private const int LosIndex = 193;
     private readonly IWorker navigator;
     private readonly IWorker combat;
-    private readonly Phase6Local45Normalizer normalizer;
-    private readonly Phase6MapIndependentSafetyLayer safety = new Phase6MapIndependentSafetyLayer();
-    private readonly float[] navigatorHidden = new float[128];
-    private readonly float[] combatHidden = new float[512];
+    private readonly LocalObservationNormalizer normalizer;
+    private readonly MapIndependentSafetyLayer safety = new MapIndependentSafetyLayer();
+    private readonly float[] navigatorHidden = new float[OnnxModelContractValidator.NavigatorHiddenSize];
+    private readonly float[] combatHidden = new float[OnnxModelContractValidator.CombatHiddenSize];
 
     public string BackendName { get; }
 
-    public Phase6BarracudaPolicy(WorkerFactory.Type workerType)
+    public BarracudaPolicy(WorkerFactory.Type workerType)
     {
         NNModel navigatorAsset = Resources.Load<NNModel>("MLModels/navigator");
         NNModel combatAsset = Resources.Load<NNModel>("MLModels/combat");
         TextAsset normalizerAsset = Resources.Load<TextAsset>("MLModels/normalizer");
         if (navigatorAsset == null || combatAsset == null || normalizerAsset == null)
-            throw new InvalidOperationException("Phase6 ONNX resources are missing from the build");
+            throw new InvalidOperationException("Bundled ONNX resources are missing from the build");
         Model navigatorModel = ModelLoader.Load(navigatorAsset);
         Model combatModel = ModelLoader.Load(combatAsset);
+        OnnxModelContractValidator.Validate(navigatorModel, combatModel);
         navigator = WorkerFactory.CreateWorker(workerType, navigatorModel);
         combat = WorkerFactory.CreateWorker(workerType, combatModel);
-        normalizer = new Phase6Local45Normalizer(normalizerAsset.text);
+        normalizer = new LocalObservationNormalizer(normalizerAsset.text);
         BackendName = workerType.ToString();
-        Debug.Log("[Phase6UnityONNX] models_loaded backend=" + BackendName
+        Debug.Log("[OnnxPolicy] models_loaded backend=" + BackendName
             + " navigator_outputs=" + string.Join(",", navigatorModel.outputs)
             + " combat_outputs=" + string.Join(",", combatModel.outputs));
     }
 
     public float[] Act(float[] actor, float[] local45)
     {
-        if (actor == null || actor.Length != ActorSize || local45 == null || local45.Length != Local45Size)
-            throw new ArgumentException("Phase6 ONNX observation shape mismatch");
-        float[] applied = new float[8];
+        ActorObservationContract.ValidateBuffer(actor, nameof(actor));
+        LocalObservationContract.ValidateBuffer(local45, nameof(local45));
+        float[] applied = new float[PolicyActionContract.Size];
         float[] nextNavigatorHidden;
-        using (Tensor actorTensor = new Tensor(1, 1, ActorSize, 1, actor))
-        using (Tensor hiddenTensor = new Tensor(1, 1, 128, 1, navigatorHidden))
+        using (Tensor actorTensor = new Tensor(1, 1, ActorObservationContract.Size, 1, actor))
+        using (Tensor hiddenTensor = new Tensor(1, 1, OnnxModelContractValidator.NavigatorHiddenSize, 1, navigatorHidden))
         {
             navigator.Execute(new Dictionary<string, Tensor>
             {
@@ -226,18 +221,22 @@ internal sealed class Phase6BarracudaPolicy : IDisposable
             });
             float[] means = navigator.PeekOutput("action_mean").ToReadOnlyArray();
             nextNavigatorHidden = navigator.PeekOutput("next_hidden_state").ToReadOnlyArray();
-            for (int index = 0; index < 4; index++)
+            OnnxModelContractValidator.ValidateRuntimeOutput(
+                means, OnnxModelContractValidator.NavigatorActionSize, "navigator.action_mean");
+            OnnxModelContractValidator.ValidateRuntimeOutput(
+                nextNavigatorHidden, OnnxModelContractValidator.NavigatorHiddenSize, "navigator.next_hidden_state");
+            for (int index = 0; index < PolicyActionContract.ContinuousCount; index++)
                 applied[index] = Mathf.Clamp(means[index], -1f, 1f);
         }
         Array.Copy(nextNavigatorHidden, navigatorHidden, navigatorHidden.Length);
         safety.Apply(actor, applied);
 
-        if (actor[LosIndex] > 0.5f)
+        if (actor[ActorObservationContract.VisibleEnemyState] > 0.5f)
         {
             float[] normalized = normalizer.Normalize(local45);
             float[] nextCombatHidden;
-            using (Tensor observationTensor = new Tensor(1, 1, Local45Size, 1, normalized))
-            using (Tensor hiddenTensor = new Tensor(1, 1, 512, 1, combatHidden))
+            using (Tensor observationTensor = new Tensor(1, 1, LocalObservationContract.Size, 1, normalized))
+            using (Tensor hiddenTensor = new Tensor(1, 1, OnnxModelContractValidator.CombatHiddenSize, 1, combatHidden))
             {
                 combat.Execute(new Dictionary<string, Tensor>
                 {
@@ -246,14 +245,18 @@ internal sealed class Phase6BarracudaPolicy : IDisposable
                 });
                 float[] combatAction = combat.PeekOutput("action").ToReadOnlyArray();
                 nextCombatHidden = combat.PeekOutput("next_hidden").ToReadOnlyArray();
+                OnnxModelContractValidator.ValidateRuntimeOutput(
+                    combatAction, PolicyActionContract.Size, "combat.action");
+                OnnxModelContractValidator.ValidateRuntimeOutput(
+                    nextCombatHidden, OnnxModelContractValidator.CombatHiddenSize, "combat.next_hidden");
                 Array.Copy(combatAction, applied, applied.Length);
             }
             Array.Copy(nextCombatHidden, combatHidden, combatHidden.Length);
         }
-        applied[3] = 0f;
+        applied[PolicyActionContract.LookPitch] = 0f;
         for (int index = 0; index < applied.Length; index++)
             if (float.IsNaN(applied[index]) || float.IsInfinity(applied[index]))
-                throw new InvalidOperationException("Phase6 ONNX produced a non-finite action");
+                throw new InvalidOperationException("Bundled ONNX policy produced a non-finite action");
         return applied;
     }
 
@@ -272,32 +275,34 @@ internal sealed class Phase6BarracudaPolicy : IDisposable
 }
 
 [Serializable]
-internal sealed class Phase6NormalizerPayload
+internal sealed class NormalizerPayload
 {
     public float clip_value;
     public float[] mean;
     public float[] std;
 }
 
-internal sealed class Phase6Local45Normalizer
+internal sealed class LocalObservationNormalizer
 {
-    private readonly Phase6NormalizerPayload payload;
+    private readonly NormalizerPayload payload;
 
-    public Phase6Local45Normalizer(string json)
+    public LocalObservationNormalizer(string json)
     {
-        payload = JsonUtility.FromJson<Phase6NormalizerPayload>(json);
+        payload = JsonUtility.FromJson<NormalizerPayload>(json);
         if (payload == null || payload.mean == null || payload.std == null
-            || payload.mean.Length != 45 || payload.std.Length != 45)
-            throw new InvalidOperationException("Phase6 local45 normalizer is invalid");
+            || payload.mean.Length != LocalObservationContract.Size
+            || payload.std.Length != LocalObservationContract.Size)
+            throw new InvalidOperationException("ONNX local45 normalizer is invalid");
     }
 
     public float[] Normalize(float[] values)
     {
-        float[] output = new float[45];
+        LocalObservationContract.ValidateBuffer(values, nameof(values));
+        float[] output = new float[LocalObservationContract.Size];
         for (int index = 0; index < output.Length; index++)
         {
             if (payload.std[index] <= 0f)
-                throw new InvalidOperationException("Phase6 local45 normalizer std is not positive");
+                throw new InvalidOperationException("ONNX local45 normalizer std is not positive");
             float value = (values[index] - payload.mean[index]) / payload.std[index];
             output[index] = payload.clip_value > 0f
                 ? Mathf.Clamp(value, -payload.clip_value, payload.clip_value) : value;
@@ -306,7 +311,7 @@ internal sealed class Phase6Local45Normalizer
     }
 }
 
-internal sealed class Phase6MapIndependentSafetyLayer
+internal sealed class MapIndependentSafetyLayer
 {
     private const int FlipInterval = 500;
     private int wallSide;
@@ -322,34 +327,40 @@ internal sealed class Phase6MapIndependentSafetyLayer
 
     public void Apply(float[] actor, float[] output)
     {
-        if (actor[193] > 0.5f)
+        if (actor[ActorObservationContract.VisibleEnemyState] > 0.5f)
         {
             Reset();
             return;
         }
         hiddenTicks++;
         int strongest = 0;
-        float strongestValue = actor[211];
-        for (int index = 1; index < 8; index++)
+        float strongestValue = actor[ActorObservationContract.HuntCue];
+        for (int index = 1; index < ActorObservationContract.HuntBearingCount; index++)
         {
-            if (actor[211 + index] > strongestValue)
+            if (actor[ActorObservationContract.HuntCue + index] > strongestValue)
             {
                 strongest = index;
-                strongestValue = actor[211 + index];
+                strongestValue = actor[ActorObservationContract.HuntCue + index];
             }
         }
-        if (actor[224] <= 0.5f || strongestValue <= 0.5f)
+        int huntValidIndex = ActorObservationContract.HuntCue
+            + ActorObservationContract.HuntBearingCount
+            + ActorObservationContract.HuntDistanceCount;
+        if (actor[huntValidIndex] <= 0.5f || strongestValue <= 0.5f)
             return;
-        int target = (strongest + 4) % 8;
-        float[] clearance = new float[8];
-        for (int sector = 0; sector < 8; sector++)
-            clearance[sector] = actor[30 + sector * 8];
-        bool pressure = actor[28] > 0.25f || actor[27] > 0.35f;
+        int target = (strongest + ActorObservationContract.HuntBearingCount / 2)
+            % ActorObservationContract.HuntBearingCount;
+        float[] clearance = new float[ActorObservationContract.FreeSpaceSectorCount];
+        for (int sector = 0; sector < ActorObservationContract.FreeSpaceSectorCount; sector++)
+            clearance[sector] = actor[ActorObservationContract.TorsoRays
+                + sector * ActorObservationContract.TorsoRaysPerSector * 2];
+        bool pressure = actor[ActorObservationContract.ProgressStuckHistory + 4] > 0.25f
+            || actor[ActorObservationContract.ProgressStuckHistory + 3] > 0.35f;
         bool active = wallSide != 0;
         if (active && clearance[target] >= 0.14f && !pressure)
         {
             clearTicks++;
-            if (clearTicks >= 8)
+            if (clearTicks >= ActorObservationContract.FreeSpaceSectorCount)
             {
                 wallSide = 0;
                 clearTicks = 0;
@@ -362,7 +373,9 @@ internal sealed class Phase6MapIndependentSafetyLayer
         }
         if (!active && (clearance[target] < 0.075f || pressure))
         {
-            wallSide = clearance[(target + 1) % 8] >= clearance[(target + 7) % 8] ? 1 : -1;
+            int sectorCount = ActorObservationContract.FreeSpaceSectorCount;
+            wallSide = clearance[(target + 1) % sectorCount]
+                >= clearance[(target + sectorCount - 1) % sectorCount] ? 1 : -1;
             active = true;
         }
         if (active && hiddenTicks % FlipInterval == 0)
@@ -373,9 +386,10 @@ internal sealed class Phase6MapIndependentSafetyLayer
         if (!active)
             return;
         int chosen = target;
-        for (int offset = 1; offset < 8; offset++)
+        for (int offset = 1; offset < ActorObservationContract.FreeSpaceSectorCount; offset++)
         {
-            int candidate = (target + wallSide * offset + 64) % 8;
+            int sectorCount = ActorObservationContract.FreeSpaceSectorCount;
+            int candidate = (target + wallSide * offset + sectorCount * sectorCount) % sectorCount;
             if (clearance[candidate] >= 0.06f)
             {
                 chosen = candidate;
@@ -385,7 +399,7 @@ internal sealed class Phase6MapIndependentSafetyLayer
         if (clearance[chosen] < 0.025f)
         {
             chosen = 0;
-            for (int index = 1; index < 8; index++)
+            for (int index = 1; index < ActorObservationContract.FreeSpaceSectorCount; index++)
                 if (clearance[index] > clearance[chosen]) chosen = index;
         }
         float angle = chosen * 45f;
@@ -397,7 +411,7 @@ internal sealed class Phase6MapIndependentSafetyLayer
 }
 
 [Serializable]
-internal sealed class Phase6UnityOnnxParityRecord
+internal sealed class OnnxParityRecord
 {
     public string schema_version;
     public string backend;
@@ -407,113 +421,3 @@ internal sealed class Phase6UnityOnnxParityRecord
     public float[] local45;
     public float[] applied_action;
 }
-
-[Serializable]
-internal sealed class Phase6UnityOnnxFrameSummary
-{
-    public string schema_version = "phase6_unity_onnx_frame_summary_v001";
-    public string backend;
-    public string graphics_device;
-    public int target_frame_rate;
-    public int frames;
-    public float mean_frame_ms;
-    public float p50_frame_ms;
-    public float p95_frame_ms;
-    public float p99_frame_ms;
-    public float max_frame_ms;
-}
-
-[DefaultExecutionOrder(20000)]
-public sealed class Phase6UnityOnnxFrameMonitor : MonoBehaviour
-{
-    private readonly List<float> frameMilliseconds = new List<float>();
-    private string backend;
-    private bool readyWritten;
-    private bool captureStarted;
-
-    public static void Ensure(string backendName)
-    {
-        Phase6UnityOnnxFrameMonitor existing = FindObjectOfType<Phase6UnityOnnxFrameMonitor>();
-        if (existing != null)
-            return;
-        GameObject monitorObject = new GameObject("_Phase6UnityOnnxFrameMonitor");
-        DontDestroyOnLoad(monitorObject);
-        Phase6UnityOnnxFrameMonitor monitor = monitorObject.AddComponent<Phase6UnityOnnxFrameMonitor>();
-        monitor.backend = backendName;
-    }
-
-    private void Update()
-    {
-        if (Time.realtimeSinceStartup > 0.5f && Time.unscaledDeltaTime > 0f)
-            frameMilliseconds.Add(Time.unscaledDeltaTime * 1000f);
-        if (!readyWritten && frameMilliseconds.Count >= 120
-            && Phase6UnityOnnxController.SuccessfulInferenceCount >= 2)
-        {
-            string readyPath = Environment.GetEnvironmentVariable("PHASE6_UNITY_ONNX_READY_PATH");
-            if (!string.IsNullOrWhiteSpace(readyPath))
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(readyPath));
-                File.WriteAllText(readyPath, "ready\n");
-            }
-            readyWritten = true;
-            WriteSummary();
-            Debug.Log("[Phase6UnityONNX] capture_ready frames=" + frameMilliseconds.Count);
-        }
-        if (readyWritten && !captureStarted)
-        {
-            string armPath = Environment.GetEnvironmentVariable("PHASE6_UNITY_ONNX_CAPTURE_ARM_PATH");
-            if (!string.IsNullOrWhiteSpace(armPath) && File.Exists(armPath))
-            {
-                MatchManager match = FindObjectOfType<MatchManager>();
-                if (match == null)
-                    throw new InvalidOperationException("Capture-arm reset requires MatchManager");
-                match.ResetMatch();
-                frameMilliseconds.Clear();
-                string startedPath = Environment.GetEnvironmentVariable("PHASE6_UNITY_ONNX_CAPTURE_STARTED_PATH");
-                if (!string.IsNullOrWhiteSpace(startedPath))
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(startedPath));
-                    File.WriteAllText(startedPath, "started\n");
-                }
-                captureStarted = true;
-                Debug.Log("[Phase6UnityONNX] capture_round_started");
-            }
-        }
-        if (frameMilliseconds.Count > 0 && frameMilliseconds.Count % 300 == 0)
-            WriteSummary();
-    }
-
-    private void OnApplicationQuit() => WriteSummary();
-
-    private void WriteSummary()
-    {
-        string path = Environment.GetEnvironmentVariable("PHASE6_UNITY_ONNX_FRAME_SUMMARY_PATH");
-        if (string.IsNullOrWhiteSpace(path) || frameMilliseconds.Count == 0)
-            return;
-        float[] sorted = frameMilliseconds.ToArray();
-        Array.Sort(sorted);
-        float sum = 0f;
-        foreach (float value in sorted) sum += value;
-        Phase6UnityOnnxFrameSummary summary = new Phase6UnityOnnxFrameSummary
-        {
-            backend = backend,
-            graphics_device = SystemInfo.graphicsDeviceName,
-            target_frame_rate = Application.targetFrameRate,
-            frames = sorted.Length,
-            mean_frame_ms = sum / sorted.Length,
-            p50_frame_ms = Percentile(sorted, 0.50f),
-            p95_frame_ms = Percentile(sorted, 0.95f),
-            p99_frame_ms = Percentile(sorted, 0.99f),
-            max_frame_ms = sorted[sorted.Length - 1]
-        };
-        Directory.CreateDirectory(Path.GetDirectoryName(path));
-        File.WriteAllText(path, JsonUtility.ToJson(summary, true));
-    }
-
-    private static float Percentile(float[] sorted, float fraction)
-    {
-        int index = Mathf.Clamp(Mathf.CeilToInt(sorted.Length * fraction) - 1, 0, sorted.Length - 1);
-        return sorted[index];
-    }
-}
-

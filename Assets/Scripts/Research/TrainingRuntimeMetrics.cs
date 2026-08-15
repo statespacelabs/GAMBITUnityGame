@@ -5,13 +5,14 @@ using UnityEngine;
 using Stopwatch = System.Diagnostics.Stopwatch;
 
 /// <summary>
-/// Phase 5 headless-only buffered parity trace. Sampling happens after normal
+/// Headless-only buffered training parity trace. Sampling happens after normal
 /// FixedUpdate work; disk I/O is deferred until process shutdown.
 /// </summary>
 [DefaultExecutionOrder(32000)]
-public sealed class Phase5RuntimeMetrics : MonoBehaviour
+[UnityEngine.Scripting.APIUpdating.MovedFrom(true, null, null, "Phase5RuntimeMetrics")]
+public sealed class TrainingRuntimeMetrics : MonoBehaviour
 {
-    private static Phase5RuntimeMetrics instance;
+    private static TrainingRuntimeMetrics instance;
     private readonly List<AreaState> areas = new List<AreaState>();
     private readonly List<TraceRow> rows = new List<TraceRow>();
     private readonly List<float> resetDurationsMs = new List<float>();
@@ -21,23 +22,23 @@ public sealed class Phase5RuntimeMetrics : MonoBehaviour
     private bool flushed;
 
     public static bool Enabled =>
-        Phase5HeadlessRuntime.Enabled
+        HeadlessTrainingRuntime.Enabled
         && Environment.GetEnvironmentVariable("PHASE5_RUNTIME_METRICS") == "1";
 
-    public static Phase5RuntimeMetrics Ensure()
+    public static TrainingRuntimeMetrics Ensure()
     {
         if (!Enabled)
             return null;
         if (instance != null)
             return instance;
-        GameObject metricsObject = new GameObject("_Phase5RuntimeMetrics");
-        instance = metricsObject.AddComponent<Phase5RuntimeMetrics>();
+        GameObject metricsObject = new GameObject("_TrainingRuntimeMetrics");
+        instance = metricsObject.AddComponent<TrainingRuntimeMetrics>();
         return instance;
     }
 
     public static void RegisterArea(int areaId, MatchManager match, PlayerBody playerA, PlayerBody playerB)
     {
-        Phase5RuntimeMetrics metrics = Ensure();
+        TrainingRuntimeMetrics metrics = Ensure();
         if (metrics == null)
             return;
         metrics.areas.Add(new AreaState(areaId, match, playerA, playerB));
@@ -115,11 +116,11 @@ public sealed class Phase5RuntimeMetrics : MonoBehaviour
                 EnsureParent(summaryPath);
                 File.WriteAllText(summaryPath, JsonUtility.ToJson(summary, true) + "\n");
             }
-            Debug.Log("[Phase5RuntimeSummary] " + JsonUtility.ToJson(summary));
+            Debug.Log("[TrainingRuntimeSummary] " + JsonUtility.ToJson(summary));
         }
         catch (Exception ex)
         {
-            Debug.LogError("[Phase5RuntimeMetrics] flush failed: " + ex);
+            Debug.LogError("[TrainingRuntimeMetrics] flush failed: " + ex);
         }
     }
 
@@ -131,7 +132,7 @@ public sealed class Phase5RuntimeMetrics : MonoBehaviour
         summary.area_count = areas.Count;
         summary.trace_rows = rows.Count;
         summary.reset_samples = resetDurationsMs.Count;
-        summary.headless_audit = Phase5HeadlessRuntime.LastAudit;
+        summary.headless_audit = HeadlessTrainingRuntime.LastAudit;
         if (fixedTickWallMs.Count > 0)
         {
             List<float> fixedOrdered = new List<float>(fixedTickWallMs);
@@ -364,6 +365,6 @@ public sealed class Phase5RuntimeMetrics : MonoBehaviour
         public float reset_latency_ms_p50;
         public float reset_latency_ms_p95;
         public float reset_latency_ms_max;
-        public Phase5HeadlessRuntime.HeadlessAudit headless_audit;
+        public HeadlessTrainingRuntime.HeadlessAudit headless_audit;
     }
 }

@@ -1,0 +1,25 @@
+{
+  "name": "Gambit.Contracts.Tests",
+  "rootNamespace": "",
+  "references": [
+    "Gambit.Runtime",
+    "Gambit.Inference",
+    "Unity.Barracuda"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "UNITY_INCLUDE_TESTS"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

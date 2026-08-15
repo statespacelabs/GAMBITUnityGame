@@ -7,10 +7,10 @@ using UnityEngine.UI;
 using UnityEngine.Video;
 
 /// <summary>
-/// Fail-closed Phase 5 headless launch contract. The mode is enabled only by
+/// Fail-closed headless-training launch contract. The mode is enabled only by
 /// --phase5-headless and never changes the interactive runtime.
 /// </summary>
-public static class Phase5HeadlessRuntime
+public static class HeadlessTrainingRuntime
 {
     public const string LaunchFlag = "--phase5-headless";
     private static bool? enabled;
@@ -48,7 +48,7 @@ public static class Phase5HeadlessRuntime
         if (failures.Count == 0)
             return true;
 
-        Debug.LogError("[Phase5Headless] launch validation failed: " + string.Join(",", failures));
+        Debug.LogError("[HeadlessTraining] launch validation failed: " + string.Join(",", failures));
         Application.Quit(52);
         return false;
     }
@@ -180,7 +180,7 @@ public static class Phase5HeadlessRuntime
             && audit.camera_transforms_unchanged ? "PASS" : "FAIL";
 
         lastAudit = audit;
-        Debug.Log("[Phase5HeadlessAudit] " + JsonUtility.ToJson(audit));
+        Debug.Log("[HeadlessAudit] " + JsonUtility.ToJson(audit));
         if (audit.status != "PASS")
             Application.Quit(53);
         return audit;

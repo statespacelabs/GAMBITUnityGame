@@ -14,7 +14,7 @@ using Unity.MLAgents.Sensors;
 ///   rhythm_tel(22): action type counts (14) + timing features (8)
 ///   obs_schema_version: phase3v2_c_local45
 ///
-/// Total vector observations: 45
+/// Total vector observations: LocalObservationContract.Size
 /// Visual observations: 1 camera sensor (224x224 RGB) — configured via AddCameraSensor
 ///
 /// Action Space (Phase 3 hybrid — matches the distilled recurrent PPO policy):
@@ -47,18 +47,12 @@ public class GambitAgentController : Agent, IPlayerController
     private Vector3 prevViewVelocity;
 
     // --- Rhythm tracking ---
-    private const int ACTION_VOCAB_SIZE = 14;
-    private const int SHOOT_ACTION_TYPE = 0;
-    private const float CLIP_SECONDS = 5.0f;
-
-    private float[] currentFrameActionCounts;
     private float lastActionTime = -1f;
     private float lastShotTime = -1f;
     private float lastReloadTime = -1f;
     private float lastTargetedActionTime = -1f;
     private bool lastCommandWasShoot = false;
     private bool shotFiredThisStep = false;
-    private bool hasTargetedAction = false;
     private float episodeStartTime;
 
     // Phase 3H-Fix hit-mechanics probe: HIT_PROBE_ORACLE=1 ignores the policy and
@@ -83,8 +77,6 @@ public class GambitAgentController : Agent, IPlayerController
         prevVelocity = Vector3.zero;
         prevEulerAngles = transform.eulerAngles;
         prevViewVelocity = Vector3.zero;
-        currentFrameActionCounts = new float[ACTION_VOCAB_SIZE];
-
         // Subscribe to events
         matchManager.OnRewardSignal += OnRewardReceived;
         matchManager.OnKill += OnKillEvent;
@@ -122,7 +114,6 @@ public class GambitAgentController : Agent, IPlayerController
         prevVelocity = Vector3.zero;
         prevEulerAngles = transform.eulerAngles;
         prevViewVelocity = Vector3.zero;
-        currentFrameActionCounts = new float[ACTION_VOCAB_SIZE];
         episodeStartTime = Time.time;
         oracleMode = false;
         currentCommand = PlayerCommand.NoOp;
@@ -132,13 +123,14 @@ public class GambitAgentController : Agent, IPlayerController
         lastTargetedActionTime = -1f;
         lastCommandWasShoot = false;
         shotFiredThisStep = false;
-        hasTargetedAction = false;
         Debug.Log("[GambitAgent] telemetry-only initialized for "
             + (identity != null ? identity.DisplayName : gameObject.name));
     }
 
     public void SetExternalCommandForTelemetry(PlayerCommand command)
     {
+        if (command.Reload && !currentCommand.Reload)
+            lastReloadTime = Time.time - episodeStartTime;
         currentCommand = command;
         lastCommandWasShoot = command.Shoot;
     }
@@ -199,7 +191,7 @@ public class GambitAgentController : Agent, IPlayerController
 
     public override void CollectObservations(VectorSensor sensor)
     {
-        // No-op: the 45-dim telemetry observation is supplied by the custom
+        // No-op: the local45 observation is supplied by the custom
         // GambitTelemetrySensor (ISensor) via BuildTelemetryObservation, and the
         // default vector sensor is configured with VectorObservationSize = 0.
         // Adding observations here conflicts with the size-0 sensor (NRE in
@@ -207,8 +199,7 @@ public class GambitAgentController : Agent, IPlayerController
     }
 
     /// <summary>
-    /// Fill a 45-dim telemetry cache (where 10 + view 13 + rhythm 22) matching the
-    /// offline Phase 1/3 telemetry schema. When advanceState is true the
+    /// Fill the frozen local45 telemetry cache. When advanceState is true the
     /// finite-difference state (prev position/velocity/angles) is advanced; pass
     /// false for a read-only peek (used by GambitTelemetrySensor.Write).
     /// </summary>
@@ -219,17 +210,17 @@ public class GambitAgentController : Agent, IPlayerController
 
     public void BuildTelemetryObservation(float[] obs, bool advanceState)
     {
+        LocalObservationContract.ValidateBuffer(obs, nameof(obs));
         if (opponentBody == null || selfBody == null)
         {
-            for (int i = 0; i < 45; i++) obs[i] = 0f;
+            System.Array.Clear(obs, 0, obs.Length);
             return;
         }
 
-        float dt = Time.deltaTime;
-        if (dt < 1e-6f) dt = 1f / 30f; // Avoid division by zero
+        float dt = Time.fixedDeltaTime;
+        if (dt < 1e-6f)
+            dt = LocalObservationContract.DefaultSimulationDeltaSeconds;
         float tRel = Time.time - episodeStartTime;
-
-        int k = 0;
 
         // WHERE_TEL - phase3v2_c_local45, 10 dims:
         // target vector in self-local frame (3), self velocity in self-local frame (3),
@@ -258,10 +249,6 @@ public class GambitAgentController : Agent, IPlayerController
             Mathf.Clamp(accLocal.z, -maxLocalLinearAccel, maxLocalLinearAccel)
         );
         float distToOpponent = relToOpponentWorld.magnitude;
-        obs[k++] = relToOpponentLocal.x; obs[k++] = relToOpponentLocal.y; obs[k++] = relToOpponentLocal.z;
-        obs[k++] = velLocal.x; obs[k++] = velLocal.y; obs[k++] = velLocal.z;
-        obs[k++] = accLocal.x; obs[k++] = accLocal.y; obs[k++] = accLocal.z;
-        obs[k++] = distToOpponent;
 
         // VIEW_TEL - phase3v2_c_local45, 13 dims:
         // target-relative sin/cos aim terms, local view velocity/acceleration, yaw/pitch/magnitude errors.
@@ -293,36 +280,40 @@ public class GambitAgentController : Agent, IPlayerController
             Mathf.Clamp(viewAcc.y, -maxViewAccel, maxViewAccel),
             Mathf.Clamp(viewAcc.z, -maxViewAccel, maxViewAccel)
         );
-        obs[k++] = sinPitchErr; obs[k++] = cosPitchErr; obs[k++] = sinYawErr; obs[k++] = cosYawErr;
-        obs[k++] = viewVel.x; obs[k++] = viewVel.y; obs[k++] = viewVel.z;
-        obs[k++] = viewAcc.x; obs[k++] = viewAcc.y; obs[k++] = viewAcc.z;
-        obs[k++] = yawErr; obs[k++] = pitchErr; obs[k++] = errMag;
-
-        // RHYTHM_TEL — 22 dims (14 action one-hot + 8 timing)
-        System.Array.Clear(currentFrameActionCounts, 0, ACTION_VOCAB_SIZE);
-        int actionCount = 0;
-        if (lastCommandWasShoot)
+        // The released rhythm vocabulary intentionally records only shooting.
+        // The remaining 13 category slots stay zero to preserve the trained model contract.
+        if (lastCommandWasShoot && advanceState)
         {
-            currentFrameActionCounts[SHOOT_ACTION_TYPE] = 1f;
-            if (advanceState) { lastShotTime = tRel; lastActionTime = tRel; }
-            actionCount++;
+            lastShotTime = tRel;
+            lastActionTime = tRel;
         }
-        float hasAnyAction = actionCount > 0 ? 1f : 0f;
-        float hasTargeted = hasTargetedAction ? 1f : 0f;
-        for (int i = 0; i < ACTION_VOCAB_SIZE; i++) obs[k++] = currentFrameActionCounts[i];
-        obs[k++] = (float)actionCount;
-        obs[k++] = hasAnyAction;
         float oppHpFrac = 1f;
         if (opponentHealth != null)
-        {
             oppHpFrac = opponentHealth.GetHealthNormalized();
-        }
-        obs[k++] = oppHpFrac; // opponent_hp_frac (was hasTargeted)
-        obs[k++] = TimeSince(tRel, lastActionTime);
-        obs[k++] = TimeSince(tRel, lastShotTime);
-        obs[k++] = TimeSince(tRel, lastReloadTime);
-        obs[k++] = TimeSince(tRel, lastTargetedActionTime);
-        obs[k++] = shotFiredThisStep ? 1f : 0f; // shot_fired_this_step
+
+        LocalObservationEncoder.Encode(new LocalObservationFrame
+        {
+            TargetLocal = relToOpponentLocal,
+            SelfVelocityLocal = velLocal,
+            SelfAccelerationLocal = accLocal,
+            DistanceToOpponent = distToOpponent,
+            SinPitchError = sinPitchErr,
+            CosPitchError = cosPitchErr,
+            SinYawError = sinYawErr,
+            CosYawError = cosYawErr,
+            ViewVelocity = viewVel,
+            ViewAcceleration = viewAcc,
+            YawErrorDegrees = yawErr,
+            PitchErrorDegrees = pitchErr,
+            AimErrorDegrees = errMag,
+            ShootCommand = lastCommandWasShoot,
+            OpponentHealthFraction = oppHpFrac,
+            TimeSinceAnyAction = TimeSince(tRel, lastActionTime),
+            TimeSinceShot = TimeSince(tRel, lastShotTime),
+            TimeSinceReload = TimeSince(tRel, lastReloadTime),
+            TimeSinceTargetedHit = TimeSince(tRel, lastTargetedActionTime),
+            ShotFiredThisStep = shotFiredThisStep
+        }, obs);
 
         if (advanceState)
         {
@@ -330,7 +321,6 @@ public class GambitAgentController : Agent, IPlayerController
             prevVelocity = vel;
             prevEulerAngles = euler;
             prevViewVelocity = viewVel;
-            hasTargetedAction = false;
             shotFiredThisStep = false;
         }
     }
@@ -366,6 +356,8 @@ public class GambitAgentController : Agent, IPlayerController
         bool crouch = da[3] == 1;
 
         lastCommandWasShoot = shoot;
+        if (reload && !currentCommand.Reload)
+            lastReloadTime = Time.time - episodeStartTime;
 
         currentCommand = new PlayerCommand
         {
@@ -516,8 +508,8 @@ public class GambitAgentController : Agent, IPlayerController
     private float TimeSince(float now, float lastTime)
     {
         if (lastTime < 0f) return 1f; // Normalized max
-        float elapsed = Mathf.Clamp(now - lastTime, 0f, CLIP_SECONDS);
-        return elapsed / CLIP_SECONDS;
+        float elapsed = Mathf.Clamp(now - lastTime, 0f, LocalObservationContract.TimingWindowSeconds);
+        return elapsed / LocalObservationContract.TimingWindowSeconds;
     }
 
     private void OnRewardReceived(PlayerIdentity player, float reward, string reason)
@@ -539,7 +531,6 @@ public class GambitAgentController : Agent, IPlayerController
         // Track targeted actions for rhythm telemetry
         if (shooter == identity)
         {
-            hasTargetedAction = true;
             lastTargetedActionTime = Time.time - episodeStartTime;
         }
     }

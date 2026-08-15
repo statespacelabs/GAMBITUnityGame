@@ -10,7 +10,7 @@ using UnityEngine.AI;
 /// Optional Goal 8 runtime NavMesh. It supplies route queries only: it never
 /// owns a movement component and never writes a player transform.
 /// </summary>
-public static class Phase5RuntimeNavMesh
+public static class RuntimeNavMesh
 {
     public const string OracleLabel = "NAVMESH_ORACLE";
     public const string ControlLabel = "NAVMESH_LAST_SEEN_CONTROL";
@@ -39,7 +39,7 @@ public static class Phase5RuntimeNavMesh
             return Fail("enable_flag_invalid:" + raw);
         if (raw == "0")
             return true;
-        if (!Phase5HeadlessRuntime.Enabled)
+        if (!HeadlessTrainingRuntime.Enabled)
             return Fail("requires_phase5_headless");
         if (Read("PHASE5_NAVIGATOR_EVAL", "0") != "1")
             return Fail("requires_goal7_dual_sensor_mode");
@@ -74,9 +74,9 @@ public static class Phase5RuntimeNavMesh
         List<NavMeshBuildSource> sources = new List<NavMeshBuildSource>();
         Bounds bounds;
         string sourceKind;
-        if (Phase5ProceduralArenaRuntime.Enabled)
+        if (ProceduralArenaRuntime.Enabled)
         {
-            if (!Phase5ProceduralArenaRuntime.TryGetNavMeshBuildGeometry(
+            if (!ProceduralArenaRuntime.TryGetNavMeshBuildGeometry(
                 areaId,
                 out BoxCollider floor,
                 out Collider[] obstacles,
@@ -175,7 +175,7 @@ public static class Phase5RuntimeNavMesh
             && path.status != NavMeshPathStatus.PathInvalid
             && path.corners != null
             && path.corners.Length >= 2;
-        Debug.Log("[Phase5NavMesh] initial audit area=" + areaId
+        Debug.Log("[NavMeshRoutes] initial audit area=" + areaId
             + " sampled_a=" + sampledA
             + " sampled_b=" + sampledB
             + " path_status=" + path.status
@@ -197,7 +197,7 @@ public static class Phase5RuntimeNavMesh
         });
         if (!initialPath)
             return Fail("initial_navmesh_path_invalid:area=" + areaId);
-        Debug.Log("[Phase5NavMesh] built area=" + areaId
+        Debug.Log("[NavMeshRoutes] built area=" + areaId
             + " source=" + sourceKind
             + " sources=" + sources.Count
             + " corners=" + path.corners.Length);
@@ -298,7 +298,7 @@ public static class Phase5RuntimeNavMesh
     private static bool Fail(string reason)
     {
         failureReason = reason;
-        Debug.LogError("[Phase5NavMesh] " + reason);
+        Debug.LogError("[NavMeshRoutes] " + reason);
         if (Enabled && Application.isBatchMode)
             Application.Quit(87);
         return false;
@@ -349,13 +349,14 @@ public static class Phase5RuntimeNavMesh
     }
 }
 
-public static class Phase5NavMeshRouteLayout
+public static class NavMeshRouteLayout
 {
     public const string SchemaId = "phase5_navmesh_route_v001";
     public const int ObservationSize = 32;
 }
 
-public sealed class Phase5NavMeshRouteSensorComponent : SensorComponent
+[UnityEngine.Scripting.APIUpdating.MovedFrom(true, null, null, "Phase5NavMeshRouteSensorComponent")]
+public sealed class NavMeshRouteSensorComponent : SensorComponent
 {
     public int AreaId { get; set; }
 
@@ -363,30 +364,30 @@ public sealed class Phase5NavMeshRouteSensorComponent : SensorComponent
     {
         PlayerBody body = GetComponent<PlayerBody>();
         if (body == null)
-            throw new InvalidOperationException("[Phase5NavMesh] PlayerBody missing");
-        Phase5NavMeshRouteTelemetry telemetry =
-            GetComponent<Phase5NavMeshRouteTelemetry>();
+            throw new InvalidOperationException("[NavMeshRoutes] PlayerBody missing");
+        NavMeshRouteTelemetry telemetry =
+            GetComponent<NavMeshRouteTelemetry>();
         if (telemetry == null)
-            telemetry = gameObject.AddComponent<Phase5NavMeshRouteTelemetry>();
+            telemetry = gameObject.AddComponent<NavMeshRouteTelemetry>();
         telemetry.Initialize(body, AreaId);
-        return new ISensor[] { new Phase5NavMeshRouteSensor(telemetry) };
+        return new ISensor[] { new NavMeshRouteSensor(telemetry) };
     }
 }
 
-public sealed class Phase5NavMeshRouteSensor : ISensor
+public sealed class NavMeshRouteSensor : ISensor
 {
-    private readonly Phase5NavMeshRouteTelemetry telemetry;
+    private readonly NavMeshRouteTelemetry telemetry;
     private readonly float[] cache =
-        new float[Phase5NavMeshRouteLayout.ObservationSize];
+        new float[NavMeshRouteLayout.ObservationSize];
     private bool hasCache;
 
-    public Phase5NavMeshRouteSensor(Phase5NavMeshRouteTelemetry telemetry)
+    public NavMeshRouteSensor(NavMeshRouteTelemetry telemetry)
     {
         this.telemetry = telemetry;
     }
 
     public ObservationSpec GetObservationSpec() =>
-        ObservationSpec.Vector(Phase5NavMeshRouteLayout.ObservationSize);
+        ObservationSpec.Vector(NavMeshRouteLayout.ObservationSize);
 
     public int Write(ObservationWriter writer)
     {
@@ -415,23 +416,24 @@ public sealed class Phase5NavMeshRouteSensor : ISensor
     }
 
     public CompressionSpec GetCompressionSpec() => CompressionSpec.Default();
-    public string GetName() => Phase5NavMeshRouteLayout.SchemaId;
+    public string GetName() => NavMeshRouteLayout.SchemaId;
 }
 
 /// <summary>
 /// Generic route metadata only. All vectors are actor-yaw egocentric and all
 /// distances are bounded scalars. World-space corners remain private.
 /// </summary>
-public sealed class Phase5NavMeshRouteTelemetry : MonoBehaviour
+[UnityEngine.Scripting.APIUpdating.MovedFrom(true, null, null, "Phase5NavMeshRouteTelemetry")]
+public sealed class NavMeshRouteTelemetry : MonoBehaviour
 {
     private const int MaxCorners = 3;
     private readonly List<Vector3> corners = new List<Vector3>();
     private readonly float[] actorCache =
-        new float[Phase5ActorObservationLayout.ObservationSize];
+        new float[ActorObservationContract.Size];
 
     private PlayerBody self;
     private PlayerBody opponent;
-    private Phase5MapIndependentTelemetry actorTelemetry;
+    private MapIndependentTelemetry actorTelemetry;
     private int areaId;
     private bool initialized;
     private bool lastSeenValid;
@@ -456,9 +458,9 @@ public sealed class Phase5NavMeshRouteTelemetry : MonoBehaviour
         MatchManager match = body != null ? body.MatchManager : null;
         opponent = match != null && body.Identity != null
             ? match.GetOpponentBody(body.Identity) : null;
-        actorTelemetry = GetComponent<Phase5MapIndependentTelemetry>();
+        actorTelemetry = GetComponent<MapIndependentTelemetry>();
         if (actorTelemetry == null)
-            actorTelemetry = gameObject.AddComponent<Phase5MapIndependentTelemetry>();
+            actorTelemetry = gameObject.AddComponent<MapIndependentTelemetry>();
         actorTelemetry.Initialize(body);
         if (match != null)
         {
@@ -467,9 +469,9 @@ public sealed class Phase5NavMeshRouteTelemetry : MonoBehaviour
         }
         initialized = true;
         ResetRoute();
-        Debug.Log("[Phase5NavMesh] sensor initialized area=" + areaId
-            + " schema=" + Phase5NavMeshRouteLayout.SchemaId
-            + " mode=" + Phase5RuntimeNavMesh.RouteMode);
+        Debug.Log("[NavMeshRoutes] sensor initialized area=" + areaId
+            + " schema=" + NavMeshRouteLayout.SchemaId
+            + " mode=" + RuntimeNavMesh.RouteMode);
     }
 
     private void OnDestroy()
@@ -498,7 +500,7 @@ public sealed class Phase5NavMeshRouteTelemetry : MonoBehaviour
     {
         if (!initialized)
             Initialize(GetComponent<PlayerBody>(), areaId);
-        if (output == null || output.Length != Phase5NavMeshRouteLayout.ObservationSize)
+        if (output == null || output.Length != NavMeshRouteLayout.ObservationSize)
             throw new ArgumentException("phase5_navmesh_route_v001 requires 32 values");
         Array.Clear(output, 0, output.Length);
         if (self == null || opponent == null)
@@ -556,8 +558,8 @@ public sealed class Phase5NavMeshRouteTelemetry : MonoBehaviour
         output[25] = Mathf.Clamp01((Time.time - lastReplanTime) / 1f);
         output[26] = Mathf.Clamp(routeDelta, -1f, 1f);
         output[27] = visible ? 1f : 0f;
-        output[28] = Phase5RuntimeNavMesh.RouteMode == "oracle" ? 1f : 0f;
-        output[29] = Phase5RuntimeNavMesh.RouteMode == "last_seen_control" ? 1f : 0f;
+        output[28] = RuntimeNavMesh.RouteMode == "oracle" ? 1f : 0f;
+        output[29] = RuntimeNavMesh.RouteMode == "last_seen_control" ? 1f : 0f;
         output[30] = Read("PHASE5_NAVMESH_PREDICTED_INTERCEPT", "0") == "1" ? 1f : 0f;
         output[31] = 0f;
 
@@ -599,7 +601,7 @@ public sealed class Phase5NavMeshRouteTelemetry : MonoBehaviour
     private bool ResolveDestination(bool visible, out Vector3 destination)
     {
         destination = Vector3.zero;
-        if (Phase5RuntimeNavMesh.RouteMode == "oracle")
+        if (RuntimeNavMesh.RouteMode == "oracle")
         {
             destination = opponent.transform.position;
             return true;
@@ -619,7 +621,8 @@ public sealed class Phase5NavMeshRouteTelemetry : MonoBehaviour
         actorTelemetry.BuildObservation(actorCache, false);
         if (actorCache[224] <= 0.5f)
             return false;
-        int bearingBin = Highest(actorCache, 211, 8);
+        int bearingBin = Highest(actorCache, ActorObservationContract.HuntCue,
+            ActorObservationContract.HuntBearingCount);
         int distanceBin = Highest(actorCache, 219, 5);
         float angle = (bearingBin + 0.5f) * 45f - 180f;
         float[] distances = { 2f, 6f, 12f, 24f, 40f };
@@ -634,7 +637,7 @@ public sealed class Phase5NavMeshRouteTelemetry : MonoBehaviour
     {
         interceptValid = false;
         if (Read("PHASE5_NAVMESH_PREDICTED_INTERCEPT", "0") != "1"
-            || Phase5RuntimeNavMesh.RouteMode != "oracle")
+            || RuntimeNavMesh.RouteMode != "oracle")
             return;
         Vector3 velocity = opponent.Motor != null
             ? opponent.Motor.WorldVelocity : Vector3.zero;
@@ -783,7 +786,7 @@ public sealed class Phase5NavMeshRouteTelemetry : MonoBehaviour
         for (int i = 0; i < values.Length; i++)
             if (float.IsNaN(values[i]) || float.IsInfinity(values[i]))
                 throw new InvalidOperationException(
-                    Phase5NavMeshRouteLayout.SchemaId
+                    NavMeshRouteLayout.SchemaId
                     + " non-finite value at " + i);
     }
 }
