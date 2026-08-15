@@ -5,7 +5,7 @@ using UnityEngine;
 /// No rule values should be hardcoded across multiple scripts — everything
 /// reads from this single source of truth.
 /// </summary>
-[CreateAssetMenu(menuName = "BotArena/MatchConfig", fileName = "MatchConfig")]
+[CreateAssetMenu(menuName = "GAMBIT/MatchConfig", fileName = "MatchConfig")]
 public class MatchConfig : ScriptableObject
 {
     [Header("Health")]

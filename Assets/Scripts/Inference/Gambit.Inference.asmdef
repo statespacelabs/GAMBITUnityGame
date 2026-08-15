@@ -1,0 +1,18 @@
+{
+  "name": "Gambit.Inference",
+  "rootNamespace": "",
+  "references": [
+    "Gambit.Runtime",
+    "Unity.ML-Agents",
+    "Unity.Barracuda"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

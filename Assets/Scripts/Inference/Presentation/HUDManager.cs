@@ -21,7 +21,6 @@ public class HUDManager : MonoBehaviour
     private GUIStyle statusStyle;
     private GUIStyle eventStyle;
     private GUIStyle deferredStyle;
-    private GUIStyle beliefStyle;
     private GUIStyle heatLabelStyle;
     private GUIStyle heatValueStyle;
     private GUIStyle contactTimerStyle;
@@ -152,14 +151,6 @@ public class HUDManager : MonoBehaviour
             fontStyle = FontStyle.Bold,
             alignment = TextAnchor.MiddleCenter,
             normal = { textColor = Color.red }
-        };
-
-        beliefStyle = new GUIStyle(GUI.skin.label)
-        {
-            fontSize = 13,
-            fontStyle = FontStyle.Bold,
-            alignment = TextAnchor.UpperRight,
-            normal = { textColor = Color.yellow }
         };
 
         heatLabelStyle = new GUIStyle(GUI.skin.label)
@@ -295,30 +286,10 @@ public class HUDManager : MonoBehaviour
             GUI.Label(new Rect(feedX, feedY, feedW, feedH), lastEvent, eventStyle);
         }
 
-        DrawBeliefHUD();
         DrawDeferredContinuationHUD();
 
         // Crosshair — always drawn (even when HUD panel is hidden)
         DrawCrosshair();
-    }
-
-    private void DrawBeliefHUD()
-    {
-        if (System.Environment.GetEnvironmentVariable("PHASE4_5_SHOW_BELIEF_HUD") != "1")
-            return;
-        Phase45LiveTelemetryBridge bridge = UnityEngine.Object.FindObjectOfType<Phase45LiveTelemetryBridge>();
-        if (bridge == null || !bridge.HasBeliefPrior)
-            return;
-
-        float w = 170f;
-        float h = 46f;
-        float x = Screen.width - w - 12f;
-        float y = 12f;
-        GUI.color = new Color(0f, 0f, 0f, 0.65f);
-        GUI.DrawTexture(new Rect(x, y, w, h), Texture2D.whiteTexture);
-        GUI.color = Color.white;
-        GUI.Label(new Rect(x + 6f, y + 5f, w - 12f, 18f), $"score {bridge.BeliefMu:F1}", beliefStyle);
-        GUI.Label(new Rect(x + 6f, y + 24f, w - 12f, 18f), $"unc {bridge.BeliefSigma:F1}", beliefStyle);
     }
 
     private void DrawDeferredContinuationHUD()

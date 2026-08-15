@@ -126,14 +126,14 @@ public class MatchManager : MonoBehaviour
 
     private void Update()
     {
-        if (Phase5HeadlessRuntime.Enabled)
+        if (GambitRuntimeMode.IsHeadless)
             return;
         TickMatch();
     }
 
     private void FixedUpdate()
     {
-        if (!Phase5HeadlessRuntime.Enabled)
+        if (!GambitRuntimeMode.IsHeadless)
             return;
         TickMatch();
     }
@@ -239,8 +239,6 @@ public class MatchManager : MonoBehaviour
         OnRewardSignal?.Invoke(killer, Config.RewardKillOpponent, "kill_opponent");
         OnRewardSignal?.Invoke(victim, Config.RewardDie, "died");
 
-        Phase5AutonomousSession.PrepareKillBoundary(this, killer, victim);
-
         if (ShouldUseDeferredContinuation())
         {
             DispatchDeferredKillEvent(killer, victim);
@@ -294,16 +292,11 @@ public class MatchManager : MonoBehaviour
 
     private bool ShouldUseDeferredContinuation()
     {
-        Phase45LiveTelemetryBridge bridge = UnityEngine.Object.FindObjectOfType<Phase45LiveTelemetryBridge>();
-        if (bridge != null && bridge.ShouldContinueTerminalKills())
-            return true;
-
-        if (System.Environment.GetEnvironmentVariable("PHASE4_5_CONTINUOUS_CHALLENGERS") == "1" && bridge == null)
-            return true;
-
-        if (System.Environment.GetEnvironmentVariable("PHASE4_5_DEFERRED_CONTINUATION") != "1")
-            return false;
-        return bridge != null && bridge.ShouldDeferTerminalCompletion();
+        // Continuous challenger sessions are research-only. Keep the legacy
+        // environment contract inert in normal release launches while allowing
+        // an explicitly requested continuous session to retain its old reset path.
+        return System.Environment.GetEnvironmentVariable(
+            "PHASE4_5_CONTINUOUS_CHALLENGERS") == "1";
     }
 
     private void DispatchDeferredKillEvent(PlayerIdentity killer, PlayerIdentity victim)
@@ -493,6 +486,22 @@ public class MatchManager : MonoBehaviour
         return true;
     }
 
+    private static bool HasLineOfSightAtPositions(Vector3 positionA, Vector3 positionB)
+    {
+        Vector3 origin = positionA + Vector3.up * 0.7f;
+        Vector3 target = positionB + Vector3.up * 0.7f;
+        Vector3 delta = target - origin;
+        float distance = delta.magnitude;
+        if (distance <= 1e-3f)
+            return true;
+        return !Physics.Raycast(
+            origin,
+            delta.normalized,
+            distance + 0.05f,
+            ~0,
+            QueryTriggerInteraction.Ignore);
+    }
+
     private bool IsInHierarchy(Transform candidate, Transform root)
     {
         if (candidate == null || root == null) return false;
@@ -574,7 +583,7 @@ public class MatchManager : MonoBehaviour
                 if (!IsRespawnPositionClear(candidate))
                     continue;
 
-                bool covered = !Phase44SpawnBucketController.HasLineOfSightAtPositions(anchor, candidate);
+                bool covered = !HasLineOfSightAtPositions(anchor, candidate);
                 if (covered)
                 {
                     PlaceContinuousChallenger(anchor, playerRotation, candidate, generation, covered, ring, attempt, "covered_decay");
@@ -651,7 +660,7 @@ public class MatchManager : MonoBehaviour
             if (!IsRespawnPositionClear(candidate))
                 continue;
 
-            bool covered = !Phase44SpawnBucketController.HasLineOfSightAtPositions(anchor, candidate);
+            bool covered = !HasLineOfSightAtPositions(anchor, candidate);
             PlaceContinuousChallenger(anchor, playerRotation, candidate, generation, covered, -2, attempt, "radial_height_fallback");
             return true;
         }
@@ -667,7 +676,7 @@ public class MatchManager : MonoBehaviour
             return false;
         if (!TryProjectRespawnPosition(ref candidate, anchor.y) && DemoMapRuntime.ControlEnabled)
             return false;
-        bool covered = !Phase44SpawnBucketController.HasLineOfSightAtPositions(anchor, candidate);
+        bool covered = !HasLineOfSightAtPositions(anchor, candidate);
         PlaceContinuousChallenger(anchor, playerRotation, candidate, generation, covered, -1, -1, "spawn_point_fallback");
         return true;
     }
@@ -763,8 +772,6 @@ public class MatchManager : MonoBehaviour
 
     public void ResetRound()
     {
-        if (Phase5AutonomousSession.ShouldSuppressAgentDrivenReset(this, "ResetRound"))
-            return;
         ResetCombatState("ResetRound");
 
         MarkContinuousContact("manual_round_reset");
@@ -774,8 +781,6 @@ public class MatchManager : MonoBehaviour
 
     public void ResetMatch()
     {
-        if (Phase5AutonomousSession.ShouldSuppressAgentDrivenReset(this, "ResetMatch"))
-            return;
         PlayerA.Identity.ResetStats();
         PlayerB.Identity.ResetStats();
         ResetCombatState("ResetMatch");
@@ -788,7 +793,6 @@ public class MatchManager : MonoBehaviour
 
     private void ResetCombatState(string reason)
     {
-        var resetTimer = Phase5RuntimeMetrics.StartResetTimer();
         CombatReady = false;
         int generation = ++resetGeneration;
 
@@ -810,7 +814,6 @@ public class MatchManager : MonoBehaviour
         AssertCombatReady(PlayerB);
 
         CombatReady = true;
-        Phase5RuntimeMetrics.FinishResetTimer(resetTimer);
     }
 
     private void AssertCombatReady(PlayerBody player)

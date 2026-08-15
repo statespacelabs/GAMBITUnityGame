@@ -59,14 +59,14 @@ public class PlayerBody : MonoBehaviour
 
     private void Update()
     {
-        if (Phase5HeadlessRuntime.Enabled)
+        if (GambitRuntimeMode.IsHeadless)
             return;
         TickController();
     }
 
     private void FixedUpdate()
     {
-        if (!Phase5HeadlessRuntime.Enabled)
+        if (!GambitRuntimeMode.IsHeadless)
             return;
         TickController();
     }
@@ -76,7 +76,6 @@ public class PlayerBody : MonoBehaviour
         if (controller == null) return;
 
         PlayerCommand command = controller.GetCommand();
-        command = Phase5GenericPrivilegedTeacher.ResolveCommand(this, command);
 
         if (matchManager != null && !matchManager.CanPlayerMove(identity))
         {

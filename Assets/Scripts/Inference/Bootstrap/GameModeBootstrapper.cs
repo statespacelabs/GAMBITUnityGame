@@ -36,6 +36,13 @@ public class GameModeBootstrapper : MonoBehaviour
         GambitBot
     }
 
+    public enum CameraView
+    {
+        Observer,
+        PlayerA,
+        PlayerB
+    }
+
     [Header("Game Mode")]
     public GameMode CurrentGameMode = GameMode.ScriptedVsScripted;
 
@@ -57,6 +64,10 @@ public class GameModeBootstrapper : MonoBehaviour
     public MatchManager MatchManagerInstance;
     public Camera GameCamera;
     public HUDManager HUDManagerInstance;
+
+    [Header("Presentation")]
+    [Tooltip("Initial camera for matches without a human player. Human matches always start in Player A POV.")]
+    public CameraView InitialCameraView = CameraView.Observer;
 
     // Spatial separation between arenas (meters). Must be large enough to prevent
     // raycast / physics cross-talk between adjacent arenas.
@@ -88,12 +99,6 @@ public class GameModeBootstrapper : MonoBehaviour
 
     private void Start()
     {
-        if (!Phase5HeadlessRuntime.ValidateLaunch())
-        {
-            enabled = false;
-            return;
-        }
-
         if (AllowEnvironmentOverrides)
         {
             string areaEnv = System.Environment.GetEnvironmentVariable("NUM_AREAS");
@@ -122,30 +127,16 @@ public class GameModeBootstrapper : MonoBehaviour
             + $"warmupEnd={ScriptedShootPressure.GlobalWarmupEndTime}"
         );
 
-        Debug.Log($"[Bootstrapper] Starting BotArenaPhase5 — Mode: {CurrentGameMode}, Areas: {numAreas}");
+        Debug.Log($"[Bootstrapper] Starting GAMBIT — Mode: {CurrentGameMode}, Areas: {numAreas}");
 
         SetupEnvironment();
-        if (!Phase5ProceduralArenaRuntime.Initialize(numAreas))
-        {
-            enabled = false;
-            return;
-        }
         if (!DemoMapRuntime.Initialize(numAreas))
         {
             enabled = false;
             return;
         }
-        if (!ValidatePhase5NavigatorLaunch()
-            || !ValidatePhase5MapGeneralPpoLaunch()
-            || !Phase5RuntimeNavMesh.ValidateLaunch()
-            || !Phase5AutonomousSession.ValidateGlobalLaunch()
-            || !Phase5GenericPrivilegedTeacher.ValidateGlobalLaunch())
-        {
-            enabled = false;
-            return;
-        }
         if (AllowEnvironmentOverrides)
-            ApplyPhase45LowLatencyGraphics();
+            ApplyLowLatencyGraphics();
 
         for (int areaId = 0; areaId < numAreas; areaId++)
         {
@@ -153,28 +144,11 @@ public class GameModeBootstrapper : MonoBehaviour
             SetupArea(areaId, areaOffset);
         }
 
-        if (!Phase5ProceduralArenaRuntime.FinalizeAndWriteAudit(
-            arenaPlayerA.ToArray(),
-            arenaPlayerB.ToArray()))
-        {
-            enabled = false;
-            return;
-        }
-        if (!Phase5RuntimeNavMesh.WriteAudit())
-        {
-            enabled = false;
-            return;
-        }
-
-        if (Phase5HeadlessRuntime.Enabled)
-            Phase5HeadlessRuntime.SuppressRenderingAndAudit();
-        else
+        if (!GambitRuntimeMode.IsHeadless)
         {
             SetupCamera();
             SetupHUD();
         }
-        SetupPhase45LiveTelemetryBridge();
-        Phase5TelemetryLeakageProbe.MaybeInstall();
 
         Debug.Log($"[Bootstrapper] Game initialized successfully — {numAreas} area(s).");
     }
@@ -183,7 +157,7 @@ public class GameModeBootstrapper : MonoBehaviour
     // Environment Setup
     // ─────────────────────────────────────────────────────
 
-    private void ApplyPhase45LowLatencyGraphics()
+    private void ApplyLowLatencyGraphics()
     {
         if (System.Environment.GetEnvironmentVariable("PHASE4_5_LOW_LATENCY_GRAPHICS") != "1")
             return;
@@ -219,7 +193,7 @@ public class GameModeBootstrapper : MonoBehaviour
 
     private void SetupEnvironment()
     {
-        if (Phase5HeadlessRuntime.Enabled)
+        if (GambitRuntimeMode.IsHeadless)
             return;
 
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
@@ -257,24 +231,7 @@ public class GameModeBootstrapper : MonoBehaviour
         GameObject arenaRoot = new GameObject($"_Arena_{areaId}");
         arenaRoot.transform.position = offset;
 
-        Phase44SpawnBucketController.SpawnPlan phase44SpawnPlan =
-            new Phase44SpawnBucketController.SpawnPlan();
-        RealisticSpawnPlan spawnPlan;
-        if (Phase5ProceduralArenaRuntime.Enabled)
-        {
-            if (!Phase5ProceduralArenaRuntime.BuildArea(areaId, offset, arenaRoot.transform)
-                || !TryBuildProceduralSpawnPlan(areaId, out spawnPlan))
-                throw new InvalidOperationException("Phase 5 procedural area construction failed for area " + areaId);
-        }
-        else
-        {
-            // Phase 4.4 controls supersede the older Phase 4.5 realistic-spawn
-            // development hook only when explicitly enabled.
-            phase44SpawnPlan = Phase44SpawnBucketController.BuildPlan(areaId, offset);
-            spawnPlan = phase44SpawnPlan.Enabled
-                ? ToRealisticSpawnPlan(phase44SpawnPlan)
-                : BuildRealisticSpawnPlan(areaId, offset);
-        }
+        RealisticSpawnPlan spawnPlan = BuildValidatedSpawnPlan(areaId, offset);
         SpawnPoint spA = CreateSpawnPoint(areaId, 0, offset, spawnPlan);
         SpawnPoint spB = CreateSpawnPoint(areaId, 1, offset, spawnPlan);
         arenaSpawnA.Add(spA);
@@ -315,76 +272,14 @@ public class GameModeBootstrapper : MonoBehaviour
         if (areaId == 0)
             MatchManagerInstance = mm;
 
-        // Build synchronously before sensors/controllers are constructed so a
-        // Goal 8 launch can never collect an observation without a valid path.
-        if (!Phase5RuntimeNavMesh.BuildArea(areaId, pA, pB))
-            throw new InvalidOperationException(
-                "Phase 5 runtime NavMesh construction failed for area " + areaId);
-
         // Assign controllers
         ControllerType typeA, typeB;
         GetControllerTypes(out typeA, out typeB);
         AttachController(pA, typeA, PlayerABotMode, areaId);
         AttachController(pB, typeB, PlayerBBotMode, areaId);
-        Phase5ProceduralArenaRuntime.ApplyGameplayParameters(areaId, pA, pB);
         ApplyScriptedShootPressureToPlayerB(pB, typeB);
-        SetupPhase44TrialControls(areaId, mm, pA, pB, phase44SpawnPlan);
-        Phase5RuntimeMetrics.RegisterArea(areaId, mm, pA, pB);
-        Phase5AutonomousSession.Attach(areaId, mm, pA, pB);
-        Phase5GenericPrivilegedTeacher.Attach(areaId, mm, pA, pB);
 
         Debug.Log($"[Bootstrapper] Area {areaId}: {pA.Identity.DisplayName}={typeA}, {pB.Identity.DisplayName}={typeB}");
-    }
-
-    private bool TryBuildProceduralSpawnPlan(int areaId, out RealisticSpawnPlan plan)
-    {
-        plan = new RealisticSpawnPlan();
-        if (!Phase5ProceduralArenaRuntime.TryGetSpawn(areaId, 0, out Vector3 posA, out Quaternion rotA)
-            || !Phase5ProceduralArenaRuntime.TryGetSpawn(areaId, 1, out Vector3 posB, out Quaternion rotB))
-            return false;
-        plan.Enabled = true;
-        plan.Bucket = "phase5_procedural";
-        plan.PosA = posA;
-        plan.PosB = posB;
-        plan.RotA = rotA;
-        plan.RotB = rotB;
-        plan.Distance = Vector3.Distance(posA, posB);
-        plan.ObstacleIntent = !Phase44SpawnBucketController.HasLineOfSightAtPositions(posA, posB);
-        return true;
-    }
-
-    private RealisticSpawnPlan ToRealisticSpawnPlan(Phase44SpawnBucketController.SpawnPlan phase44Plan)
-    {
-        RealisticSpawnPlan plan = new RealisticSpawnPlan();
-        plan.Enabled = phase44Plan.Enabled;
-        plan.Bucket = phase44Plan.Bucket;
-        plan.PosA = phase44Plan.PosA;
-        plan.PosB = phase44Plan.PosB;
-        plan.RotA = phase44Plan.RotA;
-        plan.RotB = phase44Plan.RotB;
-        plan.Distance = phase44Plan.SpawnDistance;
-        plan.ObstacleIntent = phase44Plan.ObstacleBetweenPlayers;
-        return plan;
-    }
-
-    private void SetupPhase44TrialControls(
-        int areaId,
-        MatchManager mm,
-        PlayerBody pA,
-        PlayerBody pB,
-        Phase44SpawnBucketController.SpawnPlan phase44SpawnPlan)
-    {
-        if (!phase44SpawnPlan.Enabled)
-            return;
-        if (mm == null || pA == null || pB == null)
-        {
-            Debug.LogError("[Bootstrapper] PHASE4_4_ENABLE_SPAWN_BUCKETS requested but match/player references are missing.");
-            return;
-        }
-
-        Phase44TrialTimeoutController trial = mm.gameObject.AddComponent<Phase44TrialTimeoutController>();
-        trial.Initialize(mm, pA, pB, phase44SpawnPlan, areaId);
-        Debug.Log($"[Bootstrapper] Phase 4.4 spawn controls enabled area={areaId} bucket={phase44SpawnPlan.Bucket}");
     }
 
     private SpawnPoint CreateSpawnPoint(int areaId, int playerIndex, Vector3 areaOffset, RealisticSpawnPlan realisticPlan)
@@ -453,6 +348,115 @@ public class GameModeBootstrapper : MonoBehaviour
         Environment.SetEnvironmentVariable("PHASE4_5_ACTIVE_OBSTACLE_INTENT", plan.ObstacleIntent ? "1" : "0");
         Debug.Log($"[Bootstrapper] Phase 4.5c realistic spawn bucket={plan.Bucket} distance={plan.Distance:F2} posA={plan.PosA} posB={plan.PosB}");
         return plan;
+    }
+
+    private RealisticSpawnPlan BuildValidatedSpawnPlan(int areaId, Vector3 areaOffset)
+    {
+        RealisticSpawnPlan requested = BuildRealisticSpawnPlan(areaId, areaOffset);
+        if (!DemoMapRuntime.ControlEnabled || !DemoMapRuntime.IsValid)
+            return requested;
+
+        Vector3 requestedA = requested.Enabled
+            ? requested.PosA
+            : (areaId == 0 && SpawnPointA != null
+                ? SpawnPointA.GetSpawnPosition()
+                : new Vector3(35f, 1f, -80f) + areaOffset);
+        Vector3 requestedB = requested.Enabled
+            ? requested.PosB
+            : (areaId == 0 && SpawnPointB != null
+                ? SpawnPointB.GetSpawnPosition()
+                : new Vector3(35f, 1f, -77f) + areaOffset);
+
+        int seed = unchecked(DemoMapRuntime.ActiveSeed * 73856093 + areaId * 19349663 + 17);
+        System.Random rng = new System.Random(seed);
+        if (!TryResolveInitialSpawn(requestedA, rng, out Vector3 posA, out string reasonA))
+            throw new InvalidOperationException("Unable to resolve safe player A spawn: " + reasonA);
+        if (!TryResolveOpponentSpawn(requestedB, posA, rng, out Vector3 posB, out string reasonB))
+            throw new InvalidOperationException("Unable to resolve safe player B spawn: " + reasonB);
+
+        Vector3 aToB = posB - posA;
+        aToB.y = 0f;
+        if (aToB.sqrMagnitude < 1f)
+            aToB = Vector3.forward;
+
+        requested.Enabled = true;
+        requested.Bucket = requested.Bucket ?? "map_safe";
+        requested.PosA = posA;
+        requested.PosB = posB;
+        requested.RotA = Quaternion.LookRotation(aToB.normalized, Vector3.up);
+        requested.RotB = Quaternion.LookRotation(-aToB.normalized, Vector3.up);
+        requested.Distance = Vector3.Distance(posA, posB);
+        Debug.Log(
+            $"[Bootstrapper] Safe map spawns map={DemoMapRuntime.ActiveMapId} "
+            + $"distance={requested.Distance:F2} posA={posA} posB={posB}");
+        return requested;
+    }
+
+    private static bool TryResolveInitialSpawn(
+        Vector3 requested,
+        System.Random rng,
+        out Vector3 resolved,
+        out string reason)
+    {
+        if (DemoMapRuntime.TryProjectToSurface(requested, out resolved, out reason)
+            && DemoMapRuntime.IsSafeInitialSpawn(resolved))
+            return true;
+
+        for (int attempt = 0; attempt < 96; attempt++)
+            if (DemoMapRuntime.TrySampleSurface(rng, out resolved, out reason)
+                && DemoMapRuntime.IsSafeInitialSpawn(resolved))
+                return true;
+
+        resolved = requested;
+        return false;
+    }
+
+    private static bool TryResolveOpponentSpawn(
+        Vector3 requested,
+        Vector3 anchor,
+        System.Random rng,
+        out Vector3 resolved,
+        out string reason)
+    {
+        if (DemoMapRuntime.TryProjectToSurface(requested, out resolved, out reason)
+            && DemoMapRuntime.IsSafeInitialSpawn(resolved)
+            && HorizontalDistance(anchor, resolved) >= 3f)
+            return true;
+
+        for (int attempt = 0; attempt < 128; attempt++)
+        {
+            float angle = (float)(rng.NextDouble() * Math.PI * 2d);
+            float distance = 5f + (float)rng.NextDouble() * 15f;
+            Vector3 candidate = anchor + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * distance;
+            candidate.y = anchor.y;
+            if (!DemoMapRuntime.TryProjectToSurface(candidate, out resolved, out reason))
+                continue;
+            if (!DemoMapRuntime.IsSafeInitialSpawn(resolved))
+                continue;
+            if (HorizontalDistance(anchor, resolved) < 3f)
+                continue;
+            return true;
+        }
+
+        for (int attempt = 0; attempt < 96; attempt++)
+        {
+            if (!DemoMapRuntime.TrySampleSurface(rng, out resolved, out reason))
+                continue;
+            if (!DemoMapRuntime.IsSafeInitialSpawn(resolved))
+                continue;
+            if (HorizontalDistance(anchor, resolved) >= 3f)
+                return true;
+        }
+
+        resolved = requested;
+        return false;
+    }
+
+    private static float HorizontalDistance(Vector3 a, Vector3 b)
+    {
+        a.y = 0f;
+        b.y = 0f;
+        return Vector3.Distance(a, b);
     }
 
     private bool ShouldEnableRealisticSpawns()
@@ -568,12 +572,6 @@ public class GameModeBootstrapper : MonoBehaviour
 
     private void GetControllerTypes(out ControllerType typeA, out ControllerType typeB)
     {
-        if (Phase5AutonomousSession.Enabled)
-        {
-            typeA = ControllerType.GambitBot;
-            typeB = ControllerType.ScriptedBot;
-            return;
-        }
         switch (CurrentGameMode)
         {
             case GameMode.ScriptedVsScripted: typeA = ControllerType.ScriptedBot; typeB = ControllerType.ScriptedBot; break;
@@ -650,49 +648,10 @@ public class GameModeBootstrapper : MonoBehaviour
                 if (GameCamera != null) agentCam.CopyFrom(GameCamera);
                 agentCam.enabled = false;
 
-                string telemetrySchema = System.Environment.GetEnvironmentVariable("PHASE5_TELEMETRY_SCHEMA") ?? "phase3v2_c_local45";
-                bool navigatorEvaluation =
-                    (System.Environment.GetEnvironmentVariable("PHASE5_NAVIGATOR_EVAL") ?? "0").Trim() == "1";
-                if (navigatorEvaluation)
-                {
-                    // Goal 7 evaluation keeps the frozen local45 combat stream and
-                    // adds actor231 as a separately named sensor. Python dispatches
-                    // by observation width, never by sensor order.
-                    body.gameObject.AddComponent<GambitTelemetrySensorComponent>();
-                    body.gameObject.AddComponent<Phase5MapIndependentSensorComponent>();
-                    if (Phase5RuntimeNavMesh.Enabled)
-                    {
-                        Phase5NavMeshRouteSensorComponent route =
-                            body.gameObject.AddComponent<Phase5NavMeshRouteSensorComponent>();
-                        route.AreaId = areaId;
-                        Debug.Log($"[Bootstrapper] area_id={areaId} navigator_eval=1 sensors=local45,actor231,navmesh32");
-                    }
-                    else
-                    {
-                        Debug.Log($"[Bootstrapper] area_id={areaId} navigator_eval=1 sensors=local45,actor231");
-                    }
-                    if ((System.Environment.GetEnvironmentVariable("PHASE5_MAP_GENERAL_PPO") ?? "0").Trim() == "1")
-                    {
-                        body.gameObject.AddComponent<Phase5PpoPrivilegedSensorComponent>();
-                        Phase5PpoRoleSensorComponent role =
-                            body.gameObject.AddComponent<Phase5PpoRoleSensorComponent>();
-                        role.CandidateRole = body.Identity != null && body.Identity.PlayerIndex == 0;
-                        Debug.Log($"[Bootstrapper] area_id={areaId} goal9_ppo=1 sensors=critic428,role1 candidate={role.CandidateRole}");
-                    }
-                }
-                else if (telemetrySchema == Phase5ActorObservationLayout.SchemaId)
-                {
-                    body.gameObject.AddComponent<Phase5MapIndependentSensorComponent>();
-                    Debug.Log($"[Bootstrapper] area_id={areaId} telemetry_schema={telemetrySchema}");
-                }
-                else if (telemetrySchema == "phase3v2_c_local45" || string.IsNullOrWhiteSpace(telemetrySchema))
-                {
-                    body.gameObject.AddComponent<GambitTelemetrySensorComponent>();
-                }
-                else
-                {
-                    throw new InvalidOperationException("Unsupported PHASE5_TELEMETRY_SCHEMA: " + telemetrySchema);
-                }
+                // The release ML-Agents path exposes the frozen local45 sensor.
+                // Privileged, navigator, PPO, and oracle sensors live in the
+                // optional Gambit.Research assembly.
+                body.gameObject.AddComponent<GambitTelemetrySensorComponent>();
 
                 // Conditionally add camera sensor for visual observations
                 string enableVisual = System.Environment.GetEnvironmentVariable("ENABLE_VISUAL_OBS");
@@ -737,77 +696,12 @@ public class GameModeBootstrapper : MonoBehaviour
         body.SetController(controller);
     }
 
-    private static bool ValidatePhase5NavigatorLaunch()
-    {
-        string raw = (System.Environment.GetEnvironmentVariable("PHASE5_NAVIGATOR_EVAL") ?? "0").Trim();
-        if (raw == "0" || string.IsNullOrEmpty(raw))
-            return true;
-        if (raw != "1")
-        {
-            Debug.LogError("[Phase5Navigator] PHASE5_NAVIGATOR_EVAL must be 0 or 1");
-            return false;
-        }
-        bool renderedSmoke = Phase5RenderedSmokeRuntime.Enabled;
-        if (!Phase5HeadlessRuntime.Enabled && !renderedSmoke)
-        {
-            Debug.LogError(
-                "[Phase5Navigator] evaluation requires --phase5-headless or explicit attended rendered smoke"
-            );
-            return false;
-        }
-        if (renderedSmoke)
-            Debug.Log("[Phase5Navigator] explicit attended rendered smoke accepted");
-        string schema = (System.Environment.GetEnvironmentVariable("PHASE5_TELEMETRY_SCHEMA")
-            ?? "phase3v2_c_local45").Trim();
-        if (schema != "phase3v2_c_local45")
-        {
-            Debug.LogError("[Phase5Navigator] dual sensor mode requires frozen phase3v2_c_local45");
-            return false;
-        }
-        if ((System.Environment.GetEnvironmentVariable("ENABLE_VISUAL_OBS") ?? "0").Trim() == "1")
-        {
-            Debug.LogError("[Phase5Navigator] visual observations are forbidden");
-            return false;
-        }
-        return true;
-    }
-
-    private static bool ValidatePhase5MapGeneralPpoLaunch()
-    {
-        string raw = (System.Environment.GetEnvironmentVariable("PHASE5_MAP_GENERAL_PPO") ?? "0").Trim();
-        if (raw == "0" || string.IsNullOrEmpty(raw))
-            return true;
-        if (raw != "1")
-        {
-            Debug.LogError("[Phase5HunterPPO] PHASE5_MAP_GENERAL_PPO must be 0 or 1");
-            return false;
-        }
-        if (!Phase5HeadlessRuntime.Enabled
-            || (System.Environment.GetEnvironmentVariable("PHASE5_NAVIGATOR_EVAL") ?? "0").Trim() != "1")
-        {
-            Debug.LogError("[Phase5HunterPPO] requires headless navigator dual-sensor mode");
-            return false;
-        }
-        if ((System.Environment.GetEnvironmentVariable("PHASE5_ENABLE_NAVMESH_ORACLE") ?? "0").Trim() == "1"
-            || (System.Environment.GetEnvironmentVariable("PHASE5_NAVMESH_UPPER_BOUND") ?? "0").Trim() == "1")
-        {
-            Debug.LogError("[Phase5HunterPPO] NavMesh actor/oracle inputs are forbidden");
-            return false;
-        }
-        if ((System.Environment.GetEnvironmentVariable("ENABLE_VISUAL_OBS") ?? "0").Trim() == "1")
-        {
-            Debug.LogError("[Phase5HunterPPO] visual observations are forbidden");
-            return false;
-        }
-        return true;
-    }
-
     // ─────────────────────────────────────────────────────
     // Camera Setup
     // ─────────────────────────────────────────────────────
 
-    private enum CameraView { Observer, PlayerA, PlayerB }
     private CameraView currentView = CameraView.Observer;
+    public CameraView CurrentCameraView => currentView;
 
     private void SetupCamera()
     {
@@ -826,19 +720,15 @@ public class GameModeBootstrapper : MonoBehaviour
         GameCamera.nearClipPlane = 0.05f;
         GameCamera.clearFlags = CameraClearFlags.Skybox;
 
-        if (CurrentGameMode == GameMode.HumanVsRL || CurrentGameMode == GameMode.HumanVsScripted || CurrentGameMode == GameMode.HumanVsGambit)
-        {
+        if (HasHumanPlayer(CurrentGameMode))
             SwitchCameraTo(CameraView.PlayerA);
-        }
         else
-        {
-            SwitchCameraTo(CameraView.Observer);
-        }
+            SwitchCameraTo(InitialCameraView);
     }
 
     private void Update()
     {
-        if (Phase5HeadlessRuntime.Enabled)
+        if (GambitRuntimeMode.IsHeadless)
             return;
 
         if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1))
@@ -862,12 +752,30 @@ public class GameModeBootstrapper : MonoBehaviour
                 SetupObserverCamera();
                 break;
             case CameraView.PlayerA:
-                if (playerA != null) playerA.AttachCamera(GameCamera);
+                if (playerA != null)
+                    playerA.AttachCamera(GameCamera);
+                else
+                    currentView = CameraView.Observer;
                 break;
             case CameraView.PlayerB:
-                if (playerB != null) playerB.AttachCamera(GameCamera);
+                if (playerB != null)
+                    playerB.AttachCamera(GameCamera);
+                else
+                    currentView = CameraView.Observer;
                 break;
         }
+
+        if (currentView == CameraView.Observer && view != CameraView.Observer)
+            SetupObserverCamera();
+
+        Debug.Log($"[Bootstrapper] Camera view: {currentView}");
+    }
+
+    private static bool HasHumanPlayer(GameMode mode)
+    {
+        return mode == GameMode.HumanVsRL
+            || mode == GameMode.HumanVsScripted
+            || mode == GameMode.HumanVsGambit;
     }
 
     private void SetupObserverCamera()
@@ -876,24 +784,6 @@ public class GameModeBootstrapper : MonoBehaviour
         Vector3 midpoint = (playerA.transform.position + playerB.transform.position) / 2f;
         GameCamera.transform.position = midpoint + new Vector3(0f, 15f, -10f);
         GameCamera.transform.LookAt(midpoint);
-    }
-
-    private void SetupPhase45LiveTelemetryBridge()
-    {
-        string enableBridge = System.Environment.GetEnvironmentVariable("PHASE4_5_LIVE_BRIDGE");
-        if (enableBridge != "1")
-            return;
-
-        if (MatchManagerInstance == null || playerA == null || playerB == null)
-        {
-            Debug.LogError("[Bootstrapper] PHASE4_5_LIVE_BRIDGE requested but match/player references are missing.");
-            return;
-        }
-
-        GameObject bridgeObj = new GameObject("_Phase45LiveTelemetryBridge");
-        Phase45LiveTelemetryBridge bridge = bridgeObj.AddComponent<Phase45LiveTelemetryBridge>();
-        bridge.Initialize(MatchManagerInstance, playerA, playerB, CurrentGameMode.ToString(), PlayerBBotMode.ToString());
-        Debug.Log("[Bootstrapper] Phase 4.5 live telemetry bridge enabled.");
     }
 
     // ─────────────────────────────────────────────────────

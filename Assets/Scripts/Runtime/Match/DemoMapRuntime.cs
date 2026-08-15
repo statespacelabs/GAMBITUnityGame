@@ -16,6 +16,10 @@ public static class DemoMapRuntime
     private const string RegistryResourcePath = "Maps/map_catalog";
     private const float MaxWalkableSlopeDegrees = 45f;
     private const float SpawnCenterAboveGround = 1f;
+    private const float SpawnFootingProbeRadius = 0.38f;
+    private const float SpawnFootingHeightTolerance = 0.30f;
+    private const float InitialSpawnFootingRadius = 2.5f;
+    private const float InitialSpawnMaxElevationAboveMapBase = 12f;
     private const float MaxSpawnColliderSize = 2000f;
     private const float MaxSpawnColliderCenterOffset = 1000f;
 
@@ -129,7 +133,9 @@ public static class DemoMapRuntime
         if (activeDefinition.baked_default)
         {
             if (bakedAscent == null)
-                return Fail("baked_default_map_missing");
+                return Fail(
+                    "baked_default_map_missing: open Assets/Scenes/BotArena.unity "
+                    + "or configure it as the Editor Play Mode start scene");
             bakedAscent.SetActive(true);
             activeRoot = bakedAscent;
         }
@@ -190,7 +196,9 @@ public static class DemoMapRuntime
         float distance = Mathf.Max(20f, activeBounds.size.y + 20f);
         Vector3 origin = new Vector3(requestedPosition.x, top, requestedPosition.z);
         RaycastHit[] hits = Physics.RaycastAll(origin, Vector3.down, distance, ~0, QueryTriggerInteraction.Ignore);
-        Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+        bool found = false;
+        float bestElevationDelta = float.PositiveInfinity;
+        Vector3 bestCandidate = requestedPosition;
         foreach (RaycastHit hit in hits)
         {
             if (!IsSpawnGeometryCollider(hit.collider))
@@ -200,7 +208,22 @@ public static class DemoMapRuntime
             Vector3 candidate = hit.point + Vector3.up * SpawnCenterAboveGround;
             if (!HasCapsuleClearance(candidate))
                 continue;
-            spawnCenter = candidate;
+            if (!HasStableFooting(candidate))
+                continue;
+
+            // Prefer the surface nearest the requested elevation. Sorting by
+            // ray distance selected the highest roof above an otherwise valid
+            // ground-level request.
+            float elevationDelta = Mathf.Abs(candidate.y - requestedPosition.y);
+            if (elevationDelta >= bestElevationDelta)
+                continue;
+            found = true;
+            bestElevationDelta = elevationDelta;
+            bestCandidate = candidate;
+        }
+        if (found)
+        {
+            spawnCenter = bestCandidate;
             return true;
         }
         reason = "no_walkable_surface_or_clearance";
@@ -225,7 +248,7 @@ public static class DemoMapRuntime
             Bounds bounds = collider.bounds;
             Vector3 request = new Vector3(
                 bounds.min.x + (float)rng.NextDouble() * Mathf.Max(0.01f, bounds.size.x),
-                activeBounds.max.y + 1f,
+                activeRoot.transform.position.y + SpawnCenterAboveGround,
                 bounds.min.z + (float)rng.NextDouble() * Mathf.Max(0.01f, bounds.size.z));
             if (TryProjectToSurface(request, out spawnCenter, out lastReason))
                 return true;
@@ -242,6 +265,63 @@ public static class DemoMapRuntime
         foreach (Collider overlap in overlaps)
         {
             if (overlap != null && IsInActiveMap(overlap.transform))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>Requires level map geometry beneath the capsule center and perimeter.</summary>
+    public static bool HasStableFooting(Vector3 spawnCenter)
+    {
+        return HasStableFooting(spawnCenter, SpawnFootingProbeRadius);
+    }
+
+    /// <summary>
+    /// Initial players need a broad ground patch and a ground-level elevation;
+    /// a capsule-sized roof patch is not an acceptable match start location.
+    /// </summary>
+    public static bool IsSafeInitialSpawn(Vector3 spawnCenter)
+    {
+        if (activeRoot == null)
+            return false;
+        float mapBaseCenterY = activeRoot.transform.position.y + SpawnCenterAboveGround;
+        if (spawnCenter.y - mapBaseCenterY > InitialSpawnMaxElevationAboveMapBase)
+            return false;
+        return HasStableFooting(spawnCenter, InitialSpawnFootingRadius);
+    }
+
+    private static bool HasStableFooting(Vector3 spawnCenter, float probeRadius)
+    {
+        float expectedSurfaceY = spawnCenter.y - SpawnCenterAboveGround;
+        Vector3[] offsets =
+        {
+            Vector3.zero,
+            new Vector3(probeRadius, 0f, 0f),
+            new Vector3(-probeRadius, 0f, 0f),
+            new Vector3(0f, 0f, probeRadius),
+            new Vector3(0f, 0f, -probeRadius),
+            new Vector3(probeRadius * 0.707f, 0f, probeRadius * 0.707f),
+            new Vector3(-probeRadius * 0.707f, 0f, probeRadius * 0.707f),
+            new Vector3(probeRadius * 0.707f, 0f, -probeRadius * 0.707f),
+            new Vector3(-probeRadius * 0.707f, 0f, -probeRadius * 0.707f)
+        };
+        foreach (Vector3 offset in offsets)
+        {
+            Vector3 origin = spawnCenter + offset + Vector3.up * 0.15f;
+            RaycastHit[] hits = Physics.RaycastAll(origin, Vector3.down, 1.5f, ~0, QueryTriggerInteraction.Ignore);
+            bool supported = false;
+            foreach (RaycastHit hit in hits)
+            {
+                if (!IsSpawnGeometryCollider(hit.collider))
+                    continue;
+                if (Vector3.Angle(hit.normal, Vector3.up) > MaxWalkableSlopeDegrees)
+                    continue;
+                if (Mathf.Abs(hit.point.y - expectedSurfaceY) > SpawnFootingHeightTolerance)
+                    continue;
+                supported = true;
+                break;
+            }
+            if (!supported)
                 return false;
         }
         return true;

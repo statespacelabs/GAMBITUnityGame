@@ -92,6 +92,11 @@ public sealed class GambitDemoStartup : MonoBehaviour
         y += 14f;
         DrawEnumGrid("Player B bot", ref GambitDemoRuntimeSettings.PlayerBBotMode, width, ref y);
         y += 14f;
+        if (GambitDemoRuntimeSettings.SupportsBotCameraSelection(GambitDemoRuntimeSettings.GameMode))
+        {
+            DrawCameraGrid(width, ref y);
+            y += 14f;
+        }
         GUI.Label(new Rect(0, y, width, 20f), "DISPLAY", CenteredLabel(14, new Color(0.75f, 0.84f, 1f)));
         y += 25f;
         GambitDemoRuntimeSettings.ShowHud = GUI.Toggle(new Rect(8f, y, width - 8f, 22f), GambitDemoRuntimeSettings.ShowHud, " Show debug HUD");
@@ -138,11 +143,30 @@ public sealed class GambitDemoStartup : MonoBehaviour
         bool training = GambitDemoRuntimeSettings.IsTrainingMode(GambitDemoRuntimeSettings.GameMode);
         string explanation = training
             ? "Training mode: connects Unity ML-Agents to an external trainer."
-            : "Trained RL modes run the bundled ONNX policy locally.";
+            : "RL modes run the bundled ONNX policy locally.";
         GUIStyle helpStyle = CenteredLabel(12, training ? new Color(1f, 0.78f, 0.35f) : Color.gray);
         helpStyle.wordWrap = true;
         GUI.Label(new Rect(8f, y, width - 16f, 34f), explanation, helpStyle);
         y += 38f;
+    }
+
+    private static void DrawCameraGrid(float width, ref float y)
+    {
+        GUI.Label(new Rect(0, y, width, 20f), "CAMERA", CenteredLabel(14, new Color(0.75f, 0.84f, 1f)));
+        y += 24f;
+
+        GameModeBootstrapper.CameraView[] views =
+            (GameModeBootstrapper.CameraView[])Enum.GetValues(typeof(GameModeBootstrapper.CameraView));
+        string[] labels = Array.ConvertAll(
+            views,
+            view => GambitDemoRuntimeSettings.CameraViewDisplayName(GambitDemoRuntimeSettings.GameMode, view));
+        int current = Array.IndexOf(views, GambitDemoRuntimeSettings.BotMatchCamera);
+        int next = GUI.SelectionGrid(new Rect(0, y, width, 32f), Mathf.Max(0, current), labels, 3);
+        GambitDemoRuntimeSettings.BotMatchCamera = views[Mathf.Clamp(next, 0, views.Length - 1)];
+        y += 38f;
+
+        GUI.Label(new Rect(0, y, width, 20f), "Switch during the match: 1 Observer  •  2 Player A  •  3 Player B", CenteredLabel(12, Color.gray));
+        y += 24f;
     }
 
     private void LaunchMatch()
@@ -158,6 +182,7 @@ public sealed class GambitDemoStartup : MonoBehaviour
         bootstrapper.MatchConfigAsset = config;
         bootstrapper.PlayerABotMode = GambitDemoRuntimeSettings.PlayerABotMode;
         bootstrapper.PlayerBBotMode = GambitDemoRuntimeSettings.PlayerBBotMode;
+        bootstrapper.InitialCameraView = GambitDemoRuntimeSettings.BotMatchCamera;
         runtime.AddComponent<DebugOverlay>();
         runtime.AddComponent<RecordingManager>();
         Destroy(gameObject);
@@ -178,7 +203,12 @@ public sealed class GambitDemoStartup : MonoBehaviour
 
     private static string Summary()
     {
-        return GambitDemoRuntimeSettings.GameModeDisplayName(GambitDemoRuntimeSettings.GameMode)
+        string summary = GambitDemoRuntimeSettings.GameModeDisplayName(GambitDemoRuntimeSettings.GameMode)
             + "  •  " + GambitDemoRuntimeSettings.MapId.Replace("arena_", "").Replace("_v1", "");
+        if (GambitDemoRuntimeSettings.SupportsBotCameraSelection(GambitDemoRuntimeSettings.GameMode))
+            summary += "  •  " + GambitDemoRuntimeSettings.CameraViewDisplayName(
+                GambitDemoRuntimeSettings.GameMode,
+                GambitDemoRuntimeSettings.BotMatchCamera);
+        return summary;
     }
 }

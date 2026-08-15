@@ -1,0 +1,20 @@
+{
+  "name": "Gambit.Research",
+  "rootNamespace": "",
+  "references": [
+    "Gambit.Runtime",
+    "Gambit.Inference",
+    "Unity.ML-Agents"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "GAMBIT_RESEARCH"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

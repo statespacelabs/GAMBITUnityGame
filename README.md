@@ -6,8 +6,19 @@ Open this folder in Unity Hub, open `Assets/Scenes/BotArena.unity`, and press
 Play. The build begins at **GAMBIT DEMO** with **Start** and **Settings**.
 Settings selects game mode, map (Ascent, Breeze, or Bind), scripted bot
 behaviours, HUD visibility, enemy-distance heat bar, and target frame rate.
-Modes marked **trained** run the bundled ONNX policy locally. Modes marked
-**for training** expose live Unity ML-Agents and require an external trainer.
+Standard RL modes run the bundled ONNX policy locally. Only modes marked
+**Training** expose live Unity ML-Agents and require an external trainer.
+
+## Source layout
+
+* `Assets/Scripts/Runtime/` — reusable gameplay, player, match, controller,
+  recording, and runtime UI code (`Gambit.Runtime`).
+* `Assets/Scripts/Inference/` — bundled ONNX inference and interactive demo
+  composition (`Gambit.Inference`).
+* `Assets/Scripts/Research/` — optional legacy training and evaluation tools,
+  compiled only with `GAMBIT_RESEARCH` (`Gambit.Research`).
+* `Assets/Editor/` — Unity Editor-only build, replay, QA, and Play Mode tools
+  (`Gambit.Editor`).
 
 ## Bundled runtime assets
 
@@ -18,7 +29,7 @@ Modes marked **trained** run the bundled ONNX policy locally. Modes marked
 
 The interactive demo takes settings from `GambitDemoRuntimeSettings`; it does
 not use environment variables for game mode, bot behaviour, map selection,
-HUD, or frame rate. Legacy legacy experiment systems remain source-only and
+HUD, or frame rate. Legacy experiment systems remain source-only and
 are disabled unless explicitly launched through their legacy contracts.
 
 ## Known trajectory replay
