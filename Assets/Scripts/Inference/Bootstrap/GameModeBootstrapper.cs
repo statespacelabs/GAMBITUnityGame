@@ -51,6 +51,8 @@ public class GameModeBootstrapper : MonoBehaviour
 
     [Header("Match Configuration")]
     public MatchConfig MatchConfigAsset;
+    [Tooltip("Typed runtime request. If omitted, CurrentGameMode is converted to a compatibility preset.")]
+    public MatchSpec RequestedMatch;
 
     [Header("Scripted Bot Settings")]
     public ScriptedBotController.ScriptedBotMode PlayerABotMode = ScriptedBotController.ScriptedBotMode.FaceOpponentAndShoot;
@@ -111,6 +113,17 @@ public class GameModeBootstrapper : MonoBehaviour
             if (!string.IsNullOrEmpty(botEnv) && System.Enum.TryParse<ScriptedBotController.ScriptedBotMode>(botEnv, out var parsedBot))
                 PlayerBBotMode = parsedBot;
         }
+
+        if (RequestedMatch == null)
+        {
+            RequestedMatch = GameModePresets.FromLegacy(
+                CurrentGameMode,
+                PlayerABotMode,
+                PlayerBBotMode,
+                GambitDemoRuntimeSettings.MapId,
+                Application.targetFrameRate > 0 ? Application.targetFrameRate : 60);
+        }
+        ApplyRequestedMatch();
 
         ScriptedShootPressure.LoadFromEnvironment();
         LearnerShootGeometry.LoadFromEnvironment();
@@ -189,6 +202,43 @@ public class GameModeBootstrapper : MonoBehaviour
         if (string.IsNullOrWhiteSpace(raw) || !int.TryParse(raw, out int parsed))
             return defaultValue;
         return Mathf.Clamp(parsed, minValue, maxValue);
+    }
+
+    private void ApplyRequestedMatch()
+    {
+        if (RequestedMatch.Execution != null)
+        {
+            if (AllowEnvironmentOverrides && GambitRuntimeMode.IsHeadless)
+                RequestedMatch.Execution.Kind = GambitExecutionKind.HeadlessTraining;
+            GambitRuntimeMode.Configure(RequestedMatch.Execution);
+            numAreas = Mathf.Max(numAreas, RequestedMatch.Execution.ArenaCount);
+            if (RequestedMatch.Execution.TargetFrameRate > 0)
+                Application.targetFrameRate = RequestedMatch.Execution.TargetFrameRate;
+        }
+
+        if (UsesUnifiedPolicy(RequestedMatch.PlayerA) || UsesUnifiedPolicy(RequestedMatch.PlayerB))
+        {
+            Time.fixedDeltaTime = 1f / 30f;
+            Debug.Log("[Bootstrapper] unified policy decision clock=30 Hz");
+        }
+
+        if (MatchConfigAsset == null || RequestedMatch.Rules == null) return;
+        MatchRulesSpec rules = RequestedMatch.Rules;
+        MatchConfigAsset.MaxHealth = rules.MaxHealth;
+        MatchConfigAsset.DamagePerHit = rules.DamagePerHit;
+        MatchConfigAsset.KillsPerMatch = rules.KillsToWin;
+        MatchConfigAsset.ScorePerHit = rules.ScorePerHit;
+        MatchConfigAsset.ScorePerKill = rules.ScorePerKill;
+        MatchConfigAsset.GlobalCooldownSeconds = rules.CooldownSeconds;
+        MatchConfigAsset.ResetPositionsAfterKill = rules.ResetPositionsAfterKill;
+        MatchConfigAsset.ResetBothHealthAfterKill = rules.ResetHealthAfterKill;
+    }
+
+    private static bool UsesUnifiedPolicy(PolicySpec policy)
+    {
+        return policy != null
+            && (policy.ObservationSchema == UnifiedFairObservationV2Contract.SchemaId
+                || policy.ObservationSchema == UnifiedFairObservationV2Contract.TokenSchemaId);
     }
 
     private void SetupEnvironment()
@@ -275,8 +325,8 @@ public class GameModeBootstrapper : MonoBehaviour
         // Assign controllers
         ControllerType typeA, typeB;
         GetControllerTypes(out typeA, out typeB);
-        AttachController(pA, typeA, PlayerABotMode, areaId);
-        AttachController(pB, typeB, PlayerBBotMode, areaId);
+        AttachController(pA, RequestedMatch.PlayerA, PlayerABotMode, areaId);
+        AttachController(pB, RequestedMatch.PlayerB, PlayerBBotMode, areaId);
         ApplyScriptedShootPressureToPlayerB(pB, typeB);
 
         Debug.Log($"[Bootstrapper] Area {areaId}: {pA.Identity.DisplayName}={typeA}, {pB.Identity.DisplayName}={typeB}");
@@ -572,6 +622,12 @@ public class GameModeBootstrapper : MonoBehaviour
 
     private void GetControllerTypes(out ControllerType typeA, out ControllerType typeB)
     {
+        if (RequestedMatch != null)
+        {
+            typeA = GameModePresets.ControllerTypeFor(RequestedMatch.PlayerA);
+            typeB = GameModePresets.ControllerTypeFor(RequestedMatch.PlayerB);
+            return;
+        }
         switch (CurrentGameMode)
         {
             case GameMode.ScriptedVsScripted: typeA = ControllerType.ScriptedBot; typeB = ControllerType.ScriptedBot; break;
@@ -586,121 +642,9 @@ public class GameModeBootstrapper : MonoBehaviour
         }
     }
 
-    private void AttachController(PlayerBody body, ControllerType type, ScriptedBotController.ScriptedBotMode botMode, int areaId)
+    private void AttachController(PlayerBody body, PolicySpec policy, ScriptedBotController.ScriptedBotMode botMode, int areaId)
     {
-        MonoBehaviour controller;
-
-        switch (type)
-        {
-            case ControllerType.Human:
-                controller = body.gameObject.AddComponent<HumanController>();
-                break;
-            case ControllerType.ScriptedBot:
-                ScriptedBotController bot = body.gameObject.AddComponent<ScriptedBotController>();
-                bot.BotMode = botMode;
-                controller = bot;
-                break;
-            case ControllerType.RLBot:
-                // Interactive GAMBIT matches use the bundled frozen ONNX
-                // policy in-process. Research launches retain the ML-Agents
-                // controller so mlagents-learn can connect as before.
-                if (!AllowEnvironmentOverrides)
-                {
-                    bool onnxWasActive = body.gameObject.activeSelf;
-                    body.gameObject.SetActive(false);
-                    GambitAgentController telemetryHelper =
-                        body.gameObject.AddComponent<GambitAgentController>();
-                    telemetryHelper.enabled = false;
-                    OnnxPolicyController onnxController =
-                        body.gameObject.AddComponent<OnnxPolicyController>();
-                    onnxController.TelemetryHelper = telemetryHelper;
-                    body.SetController(onnxController);
-                    body.gameObject.SetActive(onnxWasActive);
-                    Debug.Log($"[Bootstrapper] area_id={areaId} bundled Unity ONNX attached to {body.Identity.DisplayName}");
-                    return;
-                }
-
-                RLAgentController rl = body.gameObject.AddComponent<RLAgentController>();
-                var bp = rl.GetComponent<Unity.MLAgents.Policies.BehaviorParameters>();
-                if (bp != null)
-                {
-                    bp.BehaviorName = "BotArenaAgent";
-                    bp.BrainParameters.VectorObservationSize = 12;
-                    bp.BrainParameters.ActionSpec = Unity.MLAgents.Actuators.ActionSpec.MakeDiscrete(5, 3, 2);
-                }
-                controller = rl;
-                break;
-            case ControllerType.GambitBot:
-                bool wasActive = body.gameObject.activeSelf;
-                body.gameObject.SetActive(false);
-
-                var gbp = body.gameObject.AddComponent<Unity.MLAgents.Policies.BehaviorParameters>();
-                gbp.BehaviorName = "GambitAgent";
-                gbp.BrainParameters.VectorObservationSize = 0;
-                gbp.BrainParameters.ActionSpec = new Unity.MLAgents.Actuators.ActionSpec(
-                    PolicyActionContract.ContinuousCount,
-                    new int[]
-                    {
-                        PolicyActionContract.BinaryBranchSize,
-                        PolicyActionContract.BinaryBranchSize,
-                        PolicyActionContract.BinaryBranchSize,
-                        PolicyActionContract.BinaryBranchSize
-                    });
-
-                GameObject agentCamObj = new GameObject("AgentCam_" + body.Identity.DisplayName);
-                agentCamObj.transform.SetParent(body.transform);
-                agentCamObj.transform.localPosition = new Vector3(0f, 0.7f, 0f);
-                agentCamObj.transform.localRotation = Quaternion.identity;
-                Camera agentCam = agentCamObj.AddComponent<Camera>();
-                if (GameCamera != null) agentCam.CopyFrom(GameCamera);
-                agentCam.enabled = false;
-
-                // The release ML-Agents path exposes the frozen local45 sensor.
-                // Privileged, navigator, PPO, and oracle sensors live in the
-                // optional Gambit.Research assembly.
-                body.gameObject.AddComponent<GambitTelemetrySensorComponent>();
-
-                // Conditionally add camera sensor for visual observations
-                string enableVisual = System.Environment.GetEnvironmentVariable("ENABLE_VISUAL_OBS");
-                if (enableVisual == "1")
-                {
-                    agentCam.enabled = true;
-                    var camSensor = body.gameObject.AddComponent<Unity.MLAgents.Sensors.CameraSensorComponent>();
-                    camSensor.Camera = agentCam;
-                    camSensor.Width = 160;
-                    camSensor.Height = 120;
-                    camSensor.SensorName = "GambitVisual";
-                    camSensor.Grayscale = false;
-                    camSensor.CompressionType = Unity.MLAgents.Sensors.SensorCompressionType.None;
-                    Debug.Log($"[Bootstrapper] area_id={areaId} CameraSensor enabled (160x120 RGB, uncompressed)");
-                }
-
-                // CRITICAL: Add Agent BEFORE DecisionRequester!
-                // DecisionRequester has [RequireComponent(typeof(Agent))]. If added
-                // first, Unity auto-creates a bare Agent, and DecisionRequester
-                // links to THAT instead of GambitAgentController. Then rewards set
-                // on GambitAgentController never reach Python.
-                GambitAgentController gambit = body.gameObject.AddComponent<GambitAgentController>();
-                gambit.enabled = false;
-                gambit.AgentCamera = agentCam;
-
-                var dr = body.gameObject.AddComponent<Unity.MLAgents.DecisionRequester>();
-                dr.DecisionPeriod = 1;
-                dr.enabled = false;
-
-                body.SetController(gambit);
-                gambit.enabled = true;
-                dr.enabled = true;
-                body.gameObject.SetActive(wasActive);
-
-                Debug.Log($"[Bootstrapper] area_id={areaId} GambitBot attached to {body.Identity.DisplayName}");
-                return;
-            default:
-                controller = body.gameObject.AddComponent<ScriptedBotController>();
-                break;
-        }
-
-        body.SetController(controller);
+        PolicyInstaller.Install(body, policy, botMode, GameCamera, AllowEnvironmentOverrides, areaId);
     }
 
     // ─────────────────────────────────────────────────────

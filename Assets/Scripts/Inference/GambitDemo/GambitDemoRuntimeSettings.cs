@@ -14,7 +14,28 @@ public static class GambitDemoRuntimeSettings
     public static string MapId = "arena_ascent_v1";
     public static bool ShowEnemyHeatBar = true;
     public static bool ShowHud = true;
-    public static int TargetFrameRate = 60;
+    public static int TargetFrameRate = 30;
+
+    public static GambitLaunchConfig BuildLaunchConfig()
+    {
+        MatchSpec match = GameModePresets.FromLegacy(
+            GameMode,
+            PlayerABotMode,
+            PlayerBBotMode,
+            MapId,
+            TargetFrameRate);
+        match.Execution.ShowHud = ShowHud;
+        match.Execution.ShowEnemyHeatBar = ShowEnemyHeatBar;
+
+        bool training = IsTrainingMode(GameMode);
+        return new GambitLaunchConfig
+        {
+            Mode = training ? GambitLaunchMode.Training : GambitLaunchMode.Demo,
+            Match = match,
+            Training = training ? new TrainingSpec() : null,
+            Output = new OutputSpec()
+        };
+    }
 
     public static string GameModeDisplayName(GameModeBootstrapper.GameMode mode)
     {

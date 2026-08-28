@@ -11,6 +11,12 @@ public static class GambitRuntimeMode
 
     private static bool? headless;
 
+    public static void Configure(ExecutionProfile profile)
+    {
+        if (profile == null) return;
+        headless = profile.Kind == GambitExecutionKind.HeadlessTraining;
+    }
+
     public static bool IsHeadless
     {
         get

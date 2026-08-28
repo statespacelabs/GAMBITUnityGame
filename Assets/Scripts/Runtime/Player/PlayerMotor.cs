@@ -66,9 +66,7 @@ public class PlayerMotor : MonoBehaviour
     public void ApplyMovement(float moveX, float moveZ, bool jump = false, bool crouch = false)
     {
         // Ground-projected facing basis so pitch never bends movement into the floor.
-        Vector3 flatForward = Vector3.ProjectOnPlane(transform.forward, Vector3.up).normalized;
-        Vector3 flatRight = Vector3.ProjectOnPlane(transform.right, Vector3.up).normalized;
-        Vector3 move = (flatRight * moveX + flatForward * moveZ) * MoveSpeed;
+        Vector3 move = ComputeHorizontalMove(transform.rotation, moveX, moveZ) * MoveSpeed;
 
         // Crouch by scaling the controller height.
         characterController.height = crouch ? standingHeight * CrouchHeightScale : standingHeight;
@@ -107,13 +105,40 @@ public class PlayerMotor : MonoBehaviour
     /// <param name="pitch">Pitch input (look_dy): -1 = down, +1 = up.</param>
     public void ApplyLook(float yaw, float pitch)
     {
-        yawAngle += yaw * TurnSpeedDegrees * Time.deltaTime;
+        yawAngle = IntegrateYaw(yawAngle, yaw, TurnSpeedDegrees, Time.deltaTime);
         // +pitch means "look up", which is a negative Euler X in Unity.
-        pitchAngle = Mathf.Clamp(
-            pitchAngle - pitch * PitchSpeedDegrees * Time.deltaTime,
-            -MaxPitchDegrees,
-            MaxPitchDegrees);
+        pitchAngle = IntegratePitch(
+            pitchAngle, pitch, PitchSpeedDegrees, MaxPitchDegrees, Time.deltaTime);
         transform.rotation = Quaternion.Euler(pitchAngle, yawAngle, 0f);
+    }
+
+    public static Vector3 ComputeHorizontalMove(
+        Quaternion rotation,
+        float moveX,
+        float moveZ)
+    {
+        Vector3 flatForward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up).normalized;
+        Vector3 flatRight = Vector3.ProjectOnPlane(rotation * Vector3.right, Vector3.up).normalized;
+        return flatRight * moveX + flatForward * moveZ;
+    }
+
+    public static float IntegrateYaw(float currentYaw, float input, float speedDegrees, float deltaTime)
+    {
+        return currentYaw + input * speedDegrees * Mathf.Max(0f, deltaTime);
+    }
+
+    public static float IntegratePitch(
+        float currentPitch,
+        float input,
+        float speedDegrees,
+        float maxPitchDegrees,
+        float deltaTime)
+    {
+        // Positive command means look up, which is negative Unity Euler X.
+        return Mathf.Clamp(
+            currentPitch - input * speedDegrees * Mathf.Max(0f, deltaTime),
+            -Mathf.Abs(maxPitchDegrees),
+            Mathf.Abs(maxPitchDegrees));
     }
 
     /// <summary>

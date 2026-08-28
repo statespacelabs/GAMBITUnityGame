@@ -4,6 +4,8 @@
   "references": [
     "Gambit.Runtime",
     "Gambit.Inference",
+    "Gambit.Training",
+    "Gambit.Tournament",
     "Unity.ML-Agents"
   ],
   "includePlatforms": [],

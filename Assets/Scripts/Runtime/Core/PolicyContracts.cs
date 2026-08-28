@@ -105,6 +105,21 @@ public static class PolicyActionContract
     }
 }
 
+/// <summary>
+/// ML-Agents action contract for a local45 combat learner assisted by the
+/// bundled actor231 navigator. Movement is deliberately absent because the
+/// frozen navigator owns it.
+/// </summary>
+public static class Local45CombatActionContract
+{
+    public const string SchemaId = "gambit_local45_combat_action_v1";
+    public const int ContinuousCount = 2;
+    public const int BinaryActionCount = 4;
+    public const int BinaryBranchSize = 2;
+    public const int Turn = 0;
+    public const int LookPitch = 1;
+}
+
 /// <summary>Pure input record for encoding one local45 observation.</summary>
 public struct LocalObservationFrame
 {

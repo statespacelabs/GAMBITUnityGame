@@ -4,8 +4,8 @@ using Unity.MLAgents.Actuators;
 using Unity.MLAgents.Sensors;
 
 /// <summary>
-/// Gambit agent controller — sends full telemetry as observations to an external
-/// Python brain running the InquisitorEncoder + MDN Actor pipeline.
+/// Gambit ML-Agents action/reward controller. A sensor component installed by
+/// PolicyInstaller supplies either local45 telemetry or the Gen3 unified token.
 ///
 /// Unlike RLAgentController which sends 12 simplified floats, this sends the
 /// exact telemetry schema that the encoder was trained on:
@@ -30,6 +30,12 @@ public class GambitAgentController : Agent, IPlayerController
     [Tooltip("Resolution for the camera sensor")]
     public int CameraWidth = 224;
     public int CameraHeight = 224;
+
+    /// <summary>
+    /// When enabled, continuous actions contain only yaw and pitch. A separate
+    /// controller owns final command composition with the frozen navigator.
+    /// </summary>
+    public bool UseNavigationAssistedActions { get; set; }
 
     private PlayerIdentity identity;
     private MatchManager matchManager;
@@ -341,12 +347,14 @@ public class GambitAgentController : Agent, IPlayerController
             return;
         }
 
-        // Continuous (4): move_x, move_y, look_dx (yaw), look_dy (pitch).
+        // A standalone policy supplies movement + aim. A navigation-assisted
+        // local45 policy supplies only aim because actor231 owns movement.
         var ca = actions.ContinuousActions;
-        float moveX = Mathf.Clamp(ca[0], -1f, 1f);
-        float moveZ = Mathf.Clamp(ca[1], -1f, 1f);
-        float lookDx = Mathf.Clamp(ca[2], -1f, 1f);
-        float lookDy = Mathf.Clamp(ca[3], -1f, 1f);
+        float moveX = UseNavigationAssistedActions ? 0f : Mathf.Clamp(ca[0], -1f, 1f);
+        float moveZ = UseNavigationAssistedActions ? 0f : Mathf.Clamp(ca[1], -1f, 1f);
+        int aimOffset = UseNavigationAssistedActions ? 0 : 2;
+        float lookDx = Mathf.Clamp(ca[aimOffset], -1f, 1f);
+        float lookDy = Mathf.Clamp(ca[aimOffset + 1], -1f, 1f);
 
         // Discrete (4 binary branches): shoot, reload, jump, crouch.
         var da = actions.DiscreteActions;
@@ -376,10 +384,8 @@ public class GambitAgentController : Agent, IPlayerController
     {
         // Fallback: small random continuous look/move + random binaries for testing.
         var ca = actionsOut.ContinuousActions;
-        ca[0] = UnityEngine.Random.Range(-1f, 1f);
-        ca[1] = UnityEngine.Random.Range(-1f, 1f);
-        ca[2] = UnityEngine.Random.Range(-1f, 1f);
-        ca[3] = UnityEngine.Random.Range(-1f, 1f);
+        for (int index = 0; index < ca.Length; index++)
+            ca[index] = UnityEngine.Random.Range(-1f, 1f);
 
         var da = actionsOut.DiscreteActions;
         da[0] = UnityEngine.Random.Range(0, 2);

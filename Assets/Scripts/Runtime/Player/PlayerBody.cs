@@ -33,6 +33,10 @@ public class PlayerBody : MonoBehaviour
     public PlayerHealth Health => health;
     public IPlayerController Controller => controller;
     public MatchManager MatchManager => matchManager;
+    public PlayerCommand LastRequestedCommand { get; private set; }
+    public PlayerCommand LastAppliedCommand { get; private set; }
+    public FireBlockedReason LastFireBlockedReason { get; private set; } = FireBlockedReason.NO_SHOOT_INPUT;
+    public long CommandSequence { get; private set; }
 
     private void Awake()
     {
@@ -75,7 +79,8 @@ public class PlayerBody : MonoBehaviour
     {
         if (controller == null) return;
 
-        PlayerCommand command = controller.GetCommand();
+        PlayerCommand requested = controller.GetCommand();
+        PlayerCommand command = requested;
 
         if (matchManager != null && !matchManager.CanPlayerMove(identity))
         {
@@ -94,14 +99,24 @@ public class PlayerBody : MonoBehaviour
             weapon.Reload();
         }
 
+        FireAttemptResult fireAttempt = new FireAttemptResult(
+            false, FireBlockedReason.NO_SHOOT_INPUT);
         if (command.Shoot)
         {
-            FireAttemptResult result = weapon.TryFire(identity, true);
-            if (!result.Fired)
+            fireAttempt = weapon.TryFire(identity, true);
+            if (!fireAttempt.Fired)
             {
-                weapon.MaybeLogBlockedFire(result, true);
+                weapon.MaybeLogBlockedFire(fireAttempt, true);
             }
         }
+
+        PlayerCommand applied = command;
+        applied.Shoot = fireAttempt.Fired;
+        applied.Reload = command.Reload && !PlayerWeapon.DebugDisableReload;
+        LastRequestedCommand = requested;
+        LastAppliedCommand = applied;
+        LastFireBlockedReason = fireAttempt.Reason;
+        CommandSequence++;
     }
 
     public void SetController(MonoBehaviour newController)

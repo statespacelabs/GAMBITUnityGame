@@ -9,6 +9,7 @@ using UnityEngine;
 [DefaultExecutionOrder(-10000)]
 public sealed class GambitDemoStartup : MonoBehaviour
 {
+    private bool launchImmediately;
     private bool settingsOpen;
     private bool launched;
     private Vector2 settingsScroll;
@@ -19,11 +20,15 @@ public sealed class GambitDemoStartup : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Install()
     {
-        if (Application.isBatchMode || GambitTrajectoryReplayBootstrap.IsReplayRequested
+        bool explicitLaunch = !string.IsNullOrWhiteSpace(
+            Environment.GetEnvironmentVariable(GambitLaunchConfigLoader.EnvironmentVariable));
+        if ((Application.isBatchMode && !explicitLaunch)
+            || GambitTrajectoryReplayBootstrap.IsReplayRequested
             || FindObjectOfType<GambitDemoStartup>() != null)
             return;
         GameObject root = new GameObject("GAMBIT DEMO Startup");
-        root.AddComponent<GambitDemoStartup>();
+        GambitDemoStartup startup = root.AddComponent<GambitDemoStartup>();
+        startup.launchImmediately = explicitLaunch;
     }
 
     private void Awake()
@@ -33,6 +38,12 @@ public sealed class GambitDemoStartup : MonoBehaviour
             bootstrapper.enabled = false;
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+    }
+
+    private void Start()
+    {
+        if (launchImmediately)
+            LaunchMatch();
     }
 
     private void OnGUI()
@@ -172,19 +183,33 @@ public sealed class GambitDemoStartup : MonoBehaviour
     private void LaunchMatch()
     {
         launched = true;
-        Application.targetFrameRate = GambitDemoRuntimeSettings.TargetFrameRate;
-        DemoMapRuntime.ConfigureForDemo(GambitDemoRuntimeSettings.MapId);
+        GambitLaunchConfig launch = GambitLaunchConfigLoader.LoadOrDefault(
+            GambitDemoRuntimeSettings.BuildLaunchConfig());
+        Application.targetFrameRate = launch.Match.Execution.TargetFrameRate;
+        if (launch.Mode == GambitLaunchMode.Training)
+            Application.runInBackground = true;
+        DemoMapRuntime.ConfigureForDemo(launch.Match.MapId);
         GameObject runtime = new GameObject("GAMBIT DEMO Runtime");
         MatchConfig config = ScriptableObject.CreateInstance<MatchConfig>();
         GameModeBootstrapper bootstrapper = runtime.AddComponent<GameModeBootstrapper>();
         bootstrapper.AllowEnvironmentOverrides = false;
-        bootstrapper.CurrentGameMode = GambitDemoRuntimeSettings.GameMode;
+        bootstrapper.CurrentGameMode = GameModePresets.LegacyModeFor(launch.Match);
+        bootstrapper.RequestedMatch = launch.Match;
         bootstrapper.MatchConfigAsset = config;
         bootstrapper.PlayerABotMode = GambitDemoRuntimeSettings.PlayerABotMode;
         bootstrapper.PlayerBBotMode = GambitDemoRuntimeSettings.PlayerBBotMode;
         bootstrapper.InitialCameraView = GambitDemoRuntimeSettings.BotMatchCamera;
         runtime.AddComponent<DebugOverlay>();
-        runtime.AddComponent<RecordingManager>();
+        if (launch.Mode == GambitLaunchMode.Training)
+        {
+            TrainingSessionCoordinator training = runtime.AddComponent<TrainingSessionCoordinator>();
+            training.Configure(launch.Training, launch.Match, launch.Output);
+        }
+        else if (launch.Mode == GambitLaunchMode.Tournament)
+        {
+            TournamentRunner tournament = runtime.AddComponent<TournamentRunner>();
+            tournament.Configure(launch.Tournament, launch.Match, launch.Output);
+        }
         Destroy(gameObject);
     }
 

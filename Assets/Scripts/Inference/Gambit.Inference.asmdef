@@ -3,6 +3,8 @@
   "rootNamespace": "",
   "references": [
     "Gambit.Runtime",
+    "Gambit.Training",
+    "Gambit.Tournament",
     "Unity.ML-Agents",
     "Unity.Barracuda"
   ],

@@ -10,16 +10,24 @@ public static class OnnxModelContractValidator
 
     public static void Validate(Model navigator, Model combat)
     {
+        ValidateNavigator(navigator);
+        ValidateCombat(combat);
+    }
+
+    public static void ValidateNavigator(Model navigator)
+    {
         if (navigator == null)
             throw new ArgumentNullException(nameof(navigator));
-        if (combat == null)
-            throw new ArgumentNullException(nameof(combat));
-
         ValidateInput(navigator, "actor_observation", ActorObservationContract.Size);
         ValidateInput(navigator, "hidden_state", NavigatorHiddenSize);
         ValidateOutput(navigator, "action_mean");
         ValidateOutput(navigator, "next_hidden_state");
+    }
 
+    public static void ValidateCombat(Model combat)
+    {
+        if (combat == null)
+            throw new ArgumentNullException(nameof(combat));
         ValidateInput(combat, "obs_norm", LocalObservationContract.Size);
         ValidateInput(combat, "hidden", CombatHiddenSize);
         ValidateOutput(combat, "action");

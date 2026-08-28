@@ -19,6 +19,8 @@ public class DebugOverlay : MonoBehaviour
 
     private void Update()
     {
+        if (matchManager == null)
+            matchManager = FindObjectOfType<MatchManager>();
         deltaTime += (Time.unscaledDeltaTime - deltaTime) * 0.1f;
 
         if (Input.GetKeyDown(KeyCode.F3))

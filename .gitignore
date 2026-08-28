@@ -9,6 +9,9 @@ UserSettings/
 MemoryCaptures/
 Recordings/
 Assets/ML-Agents/Timers/
+.venv-mlagents20/
+Training/results/
+demo/results/
 
 # Local crash dumps and development backups
 mono_crash.*.json

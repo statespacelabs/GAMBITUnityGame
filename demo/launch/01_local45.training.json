@@ -1,0 +1,58 @@
+{
+  "SchemaVersion": 1,
+  "Mode": 1,
+  "Match": {
+    "Id": "demo/local45-vs-scripted",
+    "MapId": "arena_ascent_v1",
+    "Seed": 101,
+    "PlayerA": {
+      "Kind": 3,
+      "Id": "mlagents/demo-local45",
+      "ModelPath": "",
+      "BehaviorName": "Local45StandaloneAgent",
+      "ObservationSchema": "phase3v2_c_local45",
+      "ActionSchema": "gambit_policy_action_v1",
+      "Variant": "standalone"
+    },
+    "PlayerB": {
+      "Kind": 1,
+      "Id": "scripted/face-opponent-and-shoot",
+      "ModelPath": "",
+      "BehaviorName": "",
+      "ObservationSchema": "phase3v2_c_local45",
+      "ActionSchema": "gambit_policy_action_v1",
+      "Variant": "FaceOpponentAndShoot"
+    },
+    "Rules": {
+      "MaxHealth": 100,
+      "DamagePerHit": 20,
+      "KillsToWin": 5,
+      "ScorePerHit": 0.2,
+      "ScorePerKill": 1.0,
+      "CooldownSeconds": 0.5,
+      "ResetPositionsAfterKill": true,
+      "ResetHealthAfterKill": true
+    },
+    "Execution": {
+      "Kind": 2,
+      "ArenaCount": 1,
+      "TargetFrameRate": 30,
+      "ShowHud": false,
+      "ShowEnemyHeatBar": false,
+      "RecordCommands": false
+    }
+  },
+  "Training": {
+    "RunId": "demo-local45-1000",
+    "MaxEpisodes": 0,
+    "EpisodeTimeoutSeconds": 20.0,
+    "CurriculumId": "demo/scripted",
+    "WriteMetrics": true
+  },
+  "Output": {
+    "RootDirectory": "GambitRuns",
+    "WriteMatchResults": true,
+    "WriteTelemetry": false,
+    "WriteTrajectory": false
+  }
+}
