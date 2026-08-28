@@ -2,12 +2,54 @@
 
 Standalone Unity 2022.3 LTS 1v1 arena demo.
 
+A significant portion of this code and documentation was generated with assistance from ChatGPT, building on my earlier Unity research code for simple gameplay PPO experiments and data rendering.
+
 Open this folder in Unity Hub, open `Assets/Scenes/BotArena.unity`, and press
 Play. The build begins at **GAMBIT DEMO** with **Start** and **Settings**.
 Settings selects game mode, map (Ascent, Breeze, or Bind), scripted bot
 behaviours, HUD visibility, enemy-distance heat bar, and target frame rate.
 Standard RL modes run the bundled ONNX policy locally. Only modes marked
 **Training** expose live Unity ML-Agents and require an external trainer.
+
+## Minimal local45 PPO smoke
+
+The smoke trains one `phase3v2_c_local45` `GambitAgent` against the
+`FaceOpponentAndShoot` scripted bot. The bundled frozen actor231 navigator
+supplies map navigation while PPO learns the local45 combat action. It is
+intentionally small and isolated from other training pipelines.
+
+First-time setup:
+
+```sh
+Tools/setup_local45_ppo.sh
+```
+
+Start the trainer:
+
+```sh
+Tools/run_local45_ppo_smoke.sh
+```
+
+When the trainer says it is listening, use **GAMBIT > Training > Start
+Training...** in Unity and select `Training/local45_vs_scripted.training.json`.
+The editor enters Play Mode and bypasses the interactive start screen. Unity
+treats it as a normal training session; the external YAML and shell command
+make this particular run a short smoke test. Stop Play Mode after the trainer
+reaches 10,000 steps. Trainer checkpoints and summaries are written under
+`Training/results/`.
+
+## Gen3 unified policy integration
+
+`Training/gen3_unified_vs_scripted.training.json` selects a separate full
+policy that consumes the causal `gen3_champion_v2_token_v001` observation and
+directly owns all eight final actions, including vertical look. The imported
+contract runs at 30 Hz and does not compose navigator and combat outputs.
+
+The isolated `07_GAMBIT-Gen3-V2-Transfer` project contains no qualified Gen3
+ONNX model: its V005 protected evaluation failed and export was not performed.
+This repository therefore includes the runtime/training contract and an ONNX
+loader that fails clearly when the model resource is absent, but it does not
+claim that a deployable Gen3 checkpoint exists or start Gen3 PPO.
 
 ## Source layout
 

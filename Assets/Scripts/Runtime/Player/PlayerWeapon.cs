@@ -266,7 +266,6 @@ public class PlayerWeapon : MonoBehaviour
                 return new FireAttemptResult(false, FireBlockedReason.WEAPON_DISABLED);
             }
         }
-
         if (CooldownRemaining > 0f)
         {
             return new FireAttemptResult(false, FireBlockedReason.COOLDOWN);
